@@ -1,0 +1,33 @@
+<?php
+
+/**
+ * @file
+ * Installation instructions for the Commerce Collector module.
+ */
+
+/**
+ * Implements hook_requirements().
+ */
+function commerce_collector_requirements($phase) {
+  // Get the appropriate function for translating, to make sure this work during
+  // a Drupal installation.
+  $t = get_t();
+
+  $requirements['SoapClient'] = array(
+    'title' => $t('SoapClient PHP library'),
+  );
+
+  // Get the path to the Klarna API directory. Use Libraries API if it's
+  // available.
+  $is_soap = class_exists('SoapClient');
+
+  if (!$is_soap) {
+    $requirements['SoapClient']['value'] = $t('Not included');
+    $requirements['SoapClient']['severity'] = REQUIREMENT_ERROR;
+  }
+  else {
+    $requirements['SoapClient']['value'] = $t('Installed');
+  }
+
+  return $requirements;
+}

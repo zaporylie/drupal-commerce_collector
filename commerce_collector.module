@@ -1,0 +1,445 @@
+<?php
+
+/**
+ * @file
+ * Provides Collector payment method for Drupal Commerce.
+ */
+
+/**
+ * Remote status messages for Collector.
+ */
+define('COMMERCE_COLLECTOR_PAYMENT_STATUS_ON_HOLD', 0);
+define('COMMERCE_COLLECTOR_PAYMENT_STATUS_PENDING', 1);
+define('COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED', 2);
+define('COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED', 5);
+define('COMMERCE_COLLECTOR_PAYMENT_STATUS_SIGNING', 6);
+
+/**
+ * Implements hook_menu().
+ */
+function commerce_collector_menu() {
+  $items['admin/commerce/config/payment-methods/commerce-collector'] = array(
+    'title' => 'Commerce Collector settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_collector_settings_form'),
+    'access arguments' => array('administer payments'),
+    'file' => 'commerce_collector.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_commerce_payment_method_info().
+ */
+function commerce_collector_commerce_payment_method_info() {
+  $payment_methods = array();
+
+  $payment_methods['commerce_collector'] = array(
+    'title' => t('Collector'),
+    'description' => t('Collector external payment gateway.'),
+    'active' => TRUE,
+  );
+
+  return $payment_methods;
+}
+
+/**
+ * Payment method callback: submit form.
+ *
+ * @todo: Add proper description.
+ */
+function commerce_collector_submit_form($payment_method, $pane_values, $checkout_pane, $order) {
+  $options = array_intersect_key(country_get_list(), variable_get('commerce_collector_invoice_country', array()));
+
+  // Build wrapper over $order.
+  $wrapper = entity_metadata_wrapper('commerce_order', $order);
+  if (isset($wrapper->commerce_customer_billing->commerce_customer_address->country)) {
+    $country_code = $wrapper->commerce_customer_billing->commerce_customer_address->country->value();
+  }
+  else {
+    $country_code = NULL;
+  }
+
+  $form['country'] = array(
+    '#type' => 'select',
+    '#title' => t('Country'),
+    '#required' => TRUE,
+    '#default_value' => count($options) == 1 ? key($options) : $country_code,
+    '#disabled' => count($options) == 1 ? TRUE : FALSE,
+    '#options' => $options,
+  );
+  $form['personal_number'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Personal number'),
+    '#required' => TRUE,
+    '#description' => t(' -- add description here -- '),
+    '#element_validate' => array('_commerce_collector_personal_number_validation'),
+  );
+  $form['address'] = array(
+    '#access' => FALSE,
+    '#tree' => TRUE,
+  );
+  $form['address']['Firstname'] = array(
+    '#type' => 'textfield',
+    '#title' => t('First name'),
+    '#required' => TRUE,
+    '#default_value' => $wrapper->commerce_customer_shipping->commerce_customer_address->first_name->value(),
+  );
+  $form['address']['Lastname'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Last name'),
+    '#required' => TRUE,
+    '#default_value' => $wrapper->commerce_customer_shipping->commerce_customer_address->last_name->value(),
+  );
+  $form['address']['Address1'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Address 1'),
+    '#required' => TRUE,
+    '#default_value' => $wrapper->commerce_customer_shipping->commerce_customer_address->thoroughfare->value(),
+  );
+  $form['address']['Address2'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Address 2'),
+    '#default_value' => $wrapper->commerce_customer_shipping->commerce_customer_address->premise->value(),
+  );
+  $form['address']['COAddress'] = array(
+    '#type' => 'textfield',
+    '#title' => t('C/o address'),
+    '#default_value' => '',
+  );
+  $form['address']['City'] = array(
+    '#type' => 'textfield',
+    '#title' => t('City'),
+    '#required' => TRUE,
+    '#default_value' => $wrapper->commerce_customer_shipping->commerce_customer_address->locality->value(),
+  );
+  $form['address']['CountryCode'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Country Code'),
+    '#required' => TRUE,
+    '#default_value' => $wrapper->commerce_customer_shipping->commerce_customer_address->country->value(),
+  );
+  $form['address']['PostalCode'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Postal Code'),
+    '#required' => TRUE,
+    '#default_value' => $wrapper->commerce_customer_shipping->commerce_customer_address->postal_code->value(),
+  );
+  $form['address']['CellPhoneNumber'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Cell phone'),
+    '#default_value' => '',
+  );
+  $form['address']['CompanyName'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Company name'),
+    '#default_value' => '',
+  );
+  $form['address']['Email'] = array(
+    '#type' => 'textfield',
+    '#title' => t('E-mail address'),
+    '#default_value' => '',
+  );
+  $form['address']['PhoneNumber'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Phone number'),
+    '#default_value' => '',
+  );
+
+  $form['confirmation'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('I agree that Swedes will take control over my personal data'),
+    '#required' => TRUE,
+  );
+  return $form;
+}
+
+/**
+ * Payment method callback: submit form validation.
+ */
+function commerce_collector_submit_form_validate($payment_method, $pane_form, $pane_values, $order, $form_parents = array()) {
+//  return FALSE;
+}
+
+/**
+ * Payment method callback: submit form submission.
+ */
+function commerce_collector_submit_form_submit($payment_method, $pane_form, $pane_values, $order, $charge) {
+
+  // Build wrapper over $order.
+  $wrapper = entity_metadata_wrapper('commerce_order', $order);
+
+  $invoice = array(
+    'ActivationOption' => variable_get('commerce_collector_invoice_activation', 0),
+    'CountryCode' => $pane_values['country'],
+    'Currency' => $wrapper->commerce_order_total->currency_code->value(),
+  );
+
+  // Add manually one by one to keep it in right order (sic!).
+  $invoice['DeliveryAddress'] = array();
+  $invoice['DeliveryAddress']['Address1'] = $pane_values['address']['Address1'];
+  $invoice['DeliveryAddress']['Address2'] = $pane_values['address']['Address2'];
+  $invoice['DeliveryAddress']['COAddress'] = $pane_values['address']['COAddress'];
+  $invoice['DeliveryAddress']['City'] = $pane_values['address']['City'];
+  $invoice['DeliveryAddress']['CountryCode'] = $pane_values['address']['CountryCode'];
+  $invoice['DeliveryAddress']['PostalCode'] = $pane_values['address']['PostalCode'];
+  $invoice['DeliveryAddress']['CellPhoneNumber'] = $pane_values['address']['CellPhoneNumber'];
+  $invoice['DeliveryAddress']['CompanyName'] = $pane_values['address']['CompanyName'];
+  $invoice['DeliveryAddress']['Email'] = $pane_values['address']['Email'];
+  $invoice['DeliveryAddress']['Firstname'] = $pane_values['address']['Firstname'];
+  $invoice['DeliveryAddress']['Lastname'] = $pane_values['address']['Lastname'];
+  $invoice['DeliveryAddress']['PhoneNumber'] = $pane_values['address']['PhoneNumber'];
+
+  // Prevent PHP of using array from memory (sic!!).
+  $invoice['InvoiceAddress'] = array() + $invoice['DeliveryAddress'];
+
+  $invoice['InvoiceDeliveryMethod'] = variable_get('commerce_collector_invoice_delivery', 2);
+
+  $invoice['InvoiceRows'] = array();
+
+  $use_vat_module = variable_get('commerce_collector_use_vat_module', TRUE);
+  foreach($wrapper->commerce_line_items->getIterator() as $line) {
+    // @todo: Implement VAT module integration.
+    $invoice['InvoiceRows'][] = array(
+      'ArticleId' => isset($line->commerce_product) && isset($line->commerce_product) ? $line->commerce_product->sku->value() : $line->getIdentifier(),
+      'Description' => isset($line->commerce_product) ? $line->commerce_product->label() : $line->line_item_label->value(),
+      'Quantity' => $line->quantity->value(),
+      'UnitPrice' => $line->commerce_unit_price->amount->value() / 100,
+      'VAT' => $use_vat_module ? 0 : variable_get('commerce_collector_vat_rate', 0),
+    );
+  }
+
+  $invoice['InvoiceType'] = variable_get('commerce_collector_invoice_type', 0);
+  $invoice['OrderDate'] = format_date($order->created, 'custom', 'Y-m-d\TH:i:sP');
+  $invoice['RegNo'] = $pane_values['personal_number'];
+
+  try {
+    $result = _commerce_collector_request($invoice, 'AddInvoice');
+  }
+  catch (Exception $e) {
+    if (isset($e->faultcode) && $message = _commerce_collector_fault_codes_messages($e->faultcode)) {
+      form_set_error('commerce_collector', $message);
+    }
+    else {
+      form_set_error('commerce_collector', t('Collector was not able to process payment for provided data. Choose another payment method.'));
+    }
+    watchdog('commerce_collector', '<pre>' . print_r(array('exception' => $e, 'order' => $wrapper->getIdentifier()), TRUE) . '</pre>', array(), WATCHDOG_ERROR);
+    return FALSE;
+  }
+
+  // Create and save transaction.
+  $transaction = commerce_payment_transaction_new('commerce_collector', $order->order_id);
+  $transaction->instance_id = $payment_method['instance_id'];
+  $transaction->amount = $charge['amount'];
+  $transaction->currency_code = $charge['currency_code'];
+  $transaction->data['pane_values'] = $pane_values;
+  $transaction->data['collector_response'] = (array) $result;
+  $transaction->remote_id = $result->InvoiceNo;
+  $transaction->remote_status = $result->InvoiceStatus;
+  commerce_collector_transaction($transaction);
+
+  // Save transaction specific date in order.
+  $order->data['commerce_collector']['pane_values'] = $pane_values;
+  $order->data['commerce_collector']['transaction'] = $transaction;
+}
+
+/**
+ * Creates an example payment transaction for the specified charge amount.
+ */
+function commerce_collector_transaction(&$transaction) {
+  switch ($transaction->remote_status) {
+    case COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED:
+      $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
+      break;
+
+    case COMMERCE_COLLECTOR_PAYMENT_STATUS_ON_HOLD:
+    case COMMERCE_COLLECTOR_PAYMENT_STATUS_PENDING:
+    case COMMERCE_COLLECTOR_PAYMENT_STATUS_SIGNING:
+      $transaction->status = COMMERCE_PAYMENT_STATUS_PENDING;
+      break;
+
+    case COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED:
+      $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
+      break;
+  }
+
+  $transaction->message = 'Invoice @number has a status @status now';
+  $transaction->message_variables = array(
+    '@number' => $transaction->remote_id,
+    '@status' => $transaction->remote_status,
+  );
+
+  return commerce_payment_transaction_save($transaction);
+}
+
+/**
+ * Implements hook_commerce_order_presave().
+ */
+function commerce_collector_commerce_order_presave($order) {
+  if (variable_get('commerce_collector_invoice_activation', 0) == 0) {
+    // Get order status.
+    $status = commerce_order_status_load($order->status);
+
+    // Get all payments for commerce_collector payment method.
+    $transactions = commerce_payment_transaction_load_multiple(array(), array('order_id' => $order->order_id, 'payment_method' => 'commerce_collector'));
+
+    if (in_array($status['state'], variable_get('commerce_collector_invoice_activation_state', array('completed')))) {
+      foreach ($transactions as $transaction) {
+        commerce_collector_activate_invoice($transaction);
+      }
+    }
+    elseif (in_array($status['state'], variable_get('commerce_collector_invoice_deactivation_state', array('canceled')))) {
+      foreach ($transactions as $transaction) {
+        commerce_collector_deactivate_invoice($transaction);
+      }
+    }
+  }
+}
+
+/**
+ * Activate invoice for payment.
+ */
+function commerce_collector_activate_invoice($transaction) {
+
+  // If invoice was already canceled.
+  if ($transaction->remote_status == COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED && $transaction->status == COMMERCE_PAYMENT_STATUS_SUCCESS) {
+    return TRUE;
+  }
+
+  // Remote status was changed but local was outdated.
+  if ($transaction->remote_status == COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED) {
+    commerce_collector_transaction($transaction);
+    return TRUE;
+  }
+  try {
+    $data = array(
+      'CountryCode' => $transaction->data['pane_values']['country'],
+      'InvoiceNo' => $transaction->remote_id,
+    );
+    $result = _commerce_collector_request($data, 'ActivateInvoice');
+    dpm($result);
+    $transaction->remote_status = COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED;
+    $transaction->data['collector_response'] = (array) $result + (array) $transaction->data['collector_response'];
+    commerce_collector_transaction($transaction);
+    return TRUE;
+  }
+  catch (Exception $e) {
+    dpm($e);
+    watchdog_exception('commerce_collector', $e);
+    return FALSE;
+  }
+}
+
+/**
+ * Deactivate invoice for payment.
+ */
+function commerce_collector_deactivate_invoice($transaction) {
+
+  // If invoice was already canceled.
+  if ($transaction->remote_status == COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED && $transaction->status == COMMERCE_PAYMENT_STATUS_FAILURE) {
+    return TRUE;
+  }
+
+  // Remote status was changed but local was outdated.
+  if ($transaction->remote_status == COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED) {
+    commerce_collector_transaction($transaction);
+    return TRUE;
+  }
+  try {
+    $data = array(
+      'CountryCode' => $transaction->data['pane_values']['country'],
+      'InvoiceNo' => $transaction->remote_id,
+    );
+    $result = _commerce_collector_request($data, 'CancelInvoice');
+    dpm($result);
+    $transaction->remote_status = COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED;
+    $transaction->data['collector_response'] = (array) $result + (array) $transaction->data['collector_response'];
+    commerce_collector_transaction($transaction);
+    return TRUE;
+  }
+  catch (Exception $e) {
+    dpm($e);
+    watchdog_exception('commerce_collector', $e);
+    return FALSE;
+  }
+}
+
+/**
+ * Send request to Collector endpoint and get response.
+ *
+ * @param $data
+ * @param $method
+ * @return mixed
+ */
+function _commerce_collector_request($data, $method, $wsdl = 'InvoiceServiceV32.svc', $schema = 'InvoiceService') {
+  $environment = variable_get('commerce_collector_environment', 'https://ecommercetest.collector.se/v3.0/');
+
+  $client = new SoapClient($environment . $wsdl . '?singleWsdl', array(
+    'trace' => TRUE,
+    'features' => SOAP_SINGLE_ELEMENT_ARRAYS,
+  ));
+
+  $headers = array();
+  $headers[] = new SoapHeader('http://schemas.ecommerce.collector.se/v30/' . $schema, 'ClientIpAddress', $_SERVER['SERVER_ADDR']);
+  $headers[] = new SoapHeader('http://schemas.ecommerce.collector.se/v30/' . $schema, 'Username', variable_get('commerce_collector_username', ''));
+  $headers[] = new SoapHeader('http://schemas.ecommerce.collector.se/v30/' . $schema, 'Password', variable_get('commerce_collector_password', ''));
+  $client->__setSoapHeaders($headers);
+
+  $result = $client->{$method}($data);
+  return $result;
+}
+
+/**
+ * Perform basic validation.
+ */
+function _commerce_collector_personal_number_validation($element, &$form_state) {
+  $value = $element['#value'];
+  if (strlen($value) !== 11) {
+    form_error($element, t('Valid personal number should contains 11 characters.'));
+  }
+}
+
+/**
+ * Implements hook_entity_view_alter().
+ */
+function commerce_collector_entity_view_alter(&$build, $type) {
+  if ($type == 'commerce_payment_transaction') {
+    $data = array(
+      'CountryCode' => 'NO',
+      'InvoiceNo' => $build['#entity']->remote_id,
+    );
+    dpm(_commerce_collector_request($data, 'GetCurrentInvoice', 'InformationService.svc', 'InformationService'));
+  }
+}
+
+/**
+ * Error codes available for user.
+ */
+function _commerce_collector_fault_codes_messages($code = NULL) {
+  $codes = array(
+    'DENIED_TO_PURCHASE' => t('Unfortunately you were not approved for using invoice as your payment method. Please choose another payment method to complete your order.'),
+    'CREDIT_CHECK_DENIED' => t('Unfortunately you were not approved for using invoice as your payment method. Please choose another payment method to complete your order.'),
+    'RESERVATION_NOT_APPROVED' => t('Unfortunately you were not approved for using invoice as your payment method. Please choose another payment method to complete your order.'),
+    'PURCHASE_AMOUNT_GREATER_THAN_MAX_CREDIT_AMOUNT' => t('The total value of your shopping cart is too large for the invoice payment method. Please remove some products from your cart or choose another payment method to complete your order.'),
+    'INVALID_REGISTRATION_NUMBER' => t('The personal number you supplied is not correct. Please verify the number and try again.'),
+    'AGREEMENT_RULES_VALIDATION_FAILED' => t('The personal information you supplied does not match with the information registered in the National Registry. Please verify your information and try again.'),
+    'UNHANDLED_EXCEPTION' => t('Technical problem. Please try again later of choose another payment method for completing your order.'),
+  );
+  if (isset($codes[str_replace('s:', '', $code)])) {
+    return $codes[str_replace('s:', '', $code)];
+  }
+  elseif (isset($code)) {
+    return FALSE;
+  }
+  else {
+    return $codes;
+  }
+}
+
+/**
+ * List of countries where Collector is available.
+ */
+function _commerce_collector_get_countries() {
+  return array('NO', 'SE', 'DK', 'FI', 'DE', 'AT', 'NL');
+}

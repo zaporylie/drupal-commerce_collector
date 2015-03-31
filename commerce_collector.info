@@ -1,0 +1,7 @@
+name = Collector Payment Method
+description = Provides integration with Collector payments.
+package = Commerce
+dependencies[] = commerce
+dependencies[] = commerce_payment
+core = 7.x
+
