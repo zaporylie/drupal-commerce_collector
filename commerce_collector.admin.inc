@@ -125,6 +125,23 @@ function commerce_collector_settings_form($form, &$form_state) {
   return system_settings_form($form);
 }
 
+function commerce_collector_get_invoice($order, $transaction) {
+  $data = array(
+    'CountryCode' => 'NO',
+    'InvoiceNo' => $transaction->remote_id,
+  );
+  try {
+    $result = _commerce_collector_request($data, 'GetCurrentInvoice', 'InformationService.svc', 'InformationService');
+    $transaction->data['invoice'] = (array) $result;
+    commerce_payment_transaction_save($transaction);
+    drupal_set_message(t('Invoice information has been updated'));
+  }
+  catch (Exception $e) {
+    drupal_set_message($e->getMessage(), 'error');
+  }
+  drupal_goto('admin/commerce/orders/' . $order->order_id . '/payment/' . $transaction->transaction_id);
+}
+
 /**
  * Validate decimal number.
  */

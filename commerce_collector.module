@@ -26,7 +26,28 @@ function commerce_collector_menu() {
     'file' => 'commerce_collector.admin.inc',
     'type' => MENU_NORMAL_ITEM,
   );
+  $items['admin/commerce/orders/%commerce_order/payment/%commerce_payment_transaction/commerce_collector/get-invoice'] = array(
+    'title' => 'Get invoice',
+    'page callback' => 'commerce_collector_get_invoice',
+    'page arguments' => array(3, 5),
+    'access callback' => 'commerce_payment_transaction_access',
+    'access arguments' => array('view', 5),
+    'file' => 'commerce_collector.admin.inc',
+    'type' => MENU_LOCAL_ACTION,
+  );
   return $items;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function commerce_collector_permission() {
+  return array(
+    'commerce collector modify invoice data' => array(
+      'title' => t('Modify personal data for invoice'),
+      'description' => t('Data is grabbed from billing profile by default'),
+    ),
+  );
 }
 
 /**
@@ -77,31 +98,31 @@ function commerce_collector_submit_form($payment_method, $pane_values, $checkout
     '#element_validate' => array('_commerce_collector_personal_number_validation'),
   );
   $form['address'] = array(
-    '#access' => FALSE,
+    '#access' => user_access('commerce collector modify invoice data'),
     '#tree' => TRUE,
   );
   $form['address']['Firstname'] = array(
     '#type' => 'textfield',
     '#title' => t('First name'),
     '#required' => TRUE,
-    '#default_value' => $wrapper->commerce_customer_shipping->commerce_customer_address->first_name->value(),
+    '#default_value' => $wrapper->commerce_customer_billing->commerce_customer_address->first_name->value(),
   );
   $form['address']['Lastname'] = array(
     '#type' => 'textfield',
     '#title' => t('Last name'),
     '#required' => TRUE,
-    '#default_value' => $wrapper->commerce_customer_shipping->commerce_customer_address->last_name->value(),
+    '#default_value' => $wrapper->commerce_customer_billing->commerce_customer_address->last_name->value(),
   );
   $form['address']['Address1'] = array(
     '#type' => 'textfield',
     '#title' => t('Address 1'),
     '#required' => TRUE,
-    '#default_value' => $wrapper->commerce_customer_shipping->commerce_customer_address->thoroughfare->value(),
+    '#default_value' => $wrapper->commerce_customer_billing->commerce_customer_address->thoroughfare->value(),
   );
   $form['address']['Address2'] = array(
     '#type' => 'textfield',
     '#title' => t('Address 2'),
-    '#default_value' => $wrapper->commerce_customer_shipping->commerce_customer_address->premise->value(),
+    '#default_value' => $wrapper->commerce_customer_billing->commerce_customer_address->premise->value(),
   );
   $form['address']['COAddress'] = array(
     '#type' => 'textfield',
@@ -112,19 +133,20 @@ function commerce_collector_submit_form($payment_method, $pane_values, $checkout
     '#type' => 'textfield',
     '#title' => t('City'),
     '#required' => TRUE,
-    '#default_value' => $wrapper->commerce_customer_shipping->commerce_customer_address->locality->value(),
+    '#default_value' => $wrapper->commerce_customer_billing->commerce_customer_address->locality->value(),
   );
   $form['address']['CountryCode'] = array(
-    '#type' => 'textfield',
+    '#type' => 'select',
     '#title' => t('Country Code'),
     '#required' => TRUE,
-    '#default_value' => $wrapper->commerce_customer_shipping->commerce_customer_address->country->value(),
+    '#default_value' => $wrapper->commerce_customer_billing->commerce_customer_address->country->value(),
+    '#options' => array_intersect_key(country_get_list(), array_flip(_commerce_collector_get_countries())),
   );
   $form['address']['PostalCode'] = array(
     '#type' => 'textfield',
     '#title' => t('Postal Code'),
     '#required' => TRUE,
-    '#default_value' => $wrapper->commerce_customer_shipping->commerce_customer_address->postal_code->value(),
+    '#default_value' => $wrapper->commerce_customer_billing->commerce_customer_address->postal_code->value(),
   );
   $form['address']['CellPhoneNumber'] = array(
     '#type' => 'textfield',
@@ -211,6 +233,7 @@ function commerce_collector_submit_form_submit($payment_method, $pane_form, $pan
   }
 
   $invoice['InvoiceType'] = variable_get('commerce_collector_invoice_type', 0);
+  $invoice['OrderNo'] = $order->order_id;
   $invoice['OrderDate'] = format_date($order->created, 'custom', 'Y-m-d\TH:i:sP');
   $invoice['RegNo'] = $pane_values['personal_number'];
 
@@ -234,7 +257,7 @@ function commerce_collector_submit_form_submit($payment_method, $pane_form, $pan
   $transaction->amount = $charge['amount'];
   $transaction->currency_code = $charge['currency_code'];
   $transaction->data['pane_values'] = $pane_values;
-  $transaction->data['collector_response'] = (array) $result;
+  $transaction->data['invoice'] = (array) $result;
   $transaction->remote_id = $result->InvoiceNo;
   $transaction->remote_status = $result->InvoiceStatus;
   commerce_collector_transaction($transaction);
@@ -320,7 +343,7 @@ function commerce_collector_activate_invoice($transaction) {
     $result = _commerce_collector_request($data, 'ActivateInvoice');
     dpm($result);
     $transaction->remote_status = COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED;
-    $transaction->data['collector_response'] = (array) $result + (array) $transaction->data['collector_response'];
+    $transaction->data['invoice'] = (array) $result;
     commerce_collector_transaction($transaction);
     return TRUE;
   }
@@ -354,7 +377,7 @@ function commerce_collector_deactivate_invoice($transaction) {
     $result = _commerce_collector_request($data, 'CancelInvoice');
     dpm($result);
     $transaction->remote_status = COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED;
-    $transaction->data['collector_response'] = (array) $result + (array) $transaction->data['collector_response'];
+    $transaction->data['invoice'] = (array) $result;
     commerce_collector_transaction($transaction);
     return TRUE;
   }
@@ -405,11 +428,69 @@ function _commerce_collector_personal_number_validation($element, &$form_state) 
  */
 function commerce_collector_entity_view_alter(&$build, $type) {
   if ($type == 'commerce_payment_transaction') {
-    $data = array(
-      'CountryCode' => 'NO',
-      'InvoiceNo' => $build['#entity']->remote_id,
+    $rows = array();
+    if (isset($build['#entity']->data['invoice']['InvoiceNo'])) {
+      $rows['InvoiceNo'] = array(
+        array(
+          'data' => t('Invoice number'),
+          'header' => TRUE,
+        ),
+        array(
+          'data' => $build['#entity']->data['invoice']['InvoiceNo'],
+        ),
+      );
+    }
+    if (isset($build['#entity']->data['invoice']['InvoiceURL'])) {
+      $rows['InvoiceURL'] = array(
+        array(
+          'data' => t('Invoice URL'),
+          'header' => TRUE,
+        ),
+        array(
+          'data' => l($build['#entity']->data['invoice']['InvoiceURL'], $build['#entity']->data['invoice']['InvoiceURL'], array('absolute' => TRUE)),
+        ),
+      );
+    }
+    if (isset($build['#entity']->data['invoice']['DueDate'])) {
+      $rows['DueDate'] = array(
+        array(
+          'data' => t('Due Date'),
+          'header' => TRUE,
+        ),
+        array(
+          'data' => $build['#entity']->data['invoice']['DueDate'],
+        ),
+      );
+    }
+    if (isset($build['#entity']->data['invoice']['PaymentReference'])) {
+      $rows['PaymentReference'] = array(
+        array(
+          'data' => t('Payment Reference'),
+          'header' => TRUE,
+        ),
+        array(
+          'data' => $build['#entity']->data['invoice']['PaymentReference'],
+        ),
+      );
+    }
+    if (isset($build['#entity']->data['invoice']['PaymentStatus'])) {
+      $rows['PaymentStatus'] = array(
+        array(
+          'data' => t('Payment Status'),
+          'header' => TRUE,
+        ),
+        array(
+          'data' => $build['#entity']->data['invoice']['PaymentStatus'],
+        ),
+      );
+    }
+
+    $build['invoice'] = array(
+      '#theme' => 'table',
+      '#header' => array(),
+      '#rows' => $rows,
+      '#empty' => t('There is no activated invoice for this transaction yet. You can try download it manually.'),
     );
-    dpm(_commerce_collector_request($data, 'GetCurrentInvoice', 'InformationService.svc', 'InformationService'));
   }
 }
 
