@@ -31,6 +31,11 @@ function commerce_collector_settings_form($form, &$form_state) {
     '#title' => t('Password'),
     '#default_value' => variable_get('commerce_collector_password', NULL),
   );
+  $form['commerce_collector_login']['commerce_collector_agreement_path'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Absolute path to collector agreement.'),
+    '#default_value' => variable_get('commerce_collector_agreement_path', NULL),
+  );
   
   $form['commerce_collector_invoice'] = array(
     '#type' => 'fieldset',
@@ -42,7 +47,7 @@ function commerce_collector_settings_form($form, &$form_state) {
     '#required' => TRUE,
     '#multiple' => TRUE,
     '#default_value' => variable_get('commerce_collector_invoice_country', array()),
-    '#options' => array_intersect_key(country_get_list(), array_flip(_commerce_collector_get_countries())),
+    '#options' => _commerce_collector_get_countries(),
   );
   $form['commerce_collector_invoice']['commerce_collector_invoice_activation'] = array(
     '#type' => 'select',
@@ -114,31 +119,54 @@ function commerce_collector_settings_form($form, &$form_state) {
       FALSE => t('No'),
     ),
   );
-  $form['commerce_collector_vat']['commerce_collector_vat_rate'] = array(
+  $form['commerce_collector_vat']['commerce_collector_fixed_vat_rate'] = array(
     '#type' => 'textfield',
     '#title' => t('Fixed VAT rate'),
     '#size' => 6,
     '#maxlength' => 6,
-    '#default_value' => variable_get('commerce_collector_vat_rate', 0),
+    '#default_value' => variable_get('commerce_collector_fixed_vat_rate', 0),
     '#element_validate' => array('_commerce_collector_validate_decimal_number'),
   );
   return system_settings_form($form);
 }
 
-function commerce_collector_get_invoice($order, $transaction) {
+/**
+ * Page callback to retrieve invoice via Collector API.
+ */
+function commerce_collector_admin_get_invoice($order, $transaction) {
   $data = array(
-    'CountryCode' => 'NO',
+    'CountryCode' => $transaction->data['pane_values']['country'],
     'InvoiceNo' => $transaction->remote_id,
   );
   try {
     $result = _commerce_collector_request($data, 'GetCurrentInvoice', 'InformationService.svc', 'InformationService');
     $transaction->data['invoice'] = (array) $result;
     commerce_payment_transaction_save($transaction);
-    drupal_set_message(t('Invoice information has been updated'));
+    drupal_set_message(t('Information about corresponding invoice has been updated.'));
   }
   catch (Exception $e) {
     drupal_set_message($e->getMessage(), 'error');
+    watchdog('commerce_collector', print_r($e, TRUE), array(), WATCHDOG_ERROR);
   }
+  // @todo: Use entity_uri.
+  drupal_goto('admin/commerce/orders/' . $order->order_id . '/payment/' . $transaction->transaction_id);
+}
+
+/**
+ * Wrapper over commerce_collector_activate_invoice() function.
+ */
+function commerce_collector_admin_activate_invoice($order, $transaction) {
+  commerce_collector_activate_invoice($transaction);
+  // @todo: Use entity_uri.
+  drupal_goto('admin/commerce/orders/' . $order->order_id . '/payment/' . $transaction->transaction_id);
+}
+
+/**
+ * Wrapper over commerce_collector_deactivate_invoice() function.
+ */
+function commerce_collector_admin_deactivate_invoice($order, $transaction) {
+  commerce_collector_deactivate_invoice($transaction);
+  // @todo: Use entity_uri.
   drupal_goto('admin/commerce/orders/' . $order->order_id . '/payment/' . $transaction->transaction_id);
 }
 
