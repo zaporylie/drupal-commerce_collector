@@ -36,7 +36,7 @@ function commerce_collector_settings_form($form, &$form_state) {
     '#title' => t('Absolute path to collector agreement.'),
     '#default_value' => variable_get('commerce_collector_agreement_path', NULL),
   );
-  
+
   $form['commerce_collector_invoice'] = array(
     '#type' => 'fieldset',
     '#title' => t('Invoice settings'),
@@ -104,7 +104,7 @@ function commerce_collector_settings_form($form, &$form_state) {
       5 => t('Annuity invoice'),
     ),
   );
-  
+
   $form['commerce_collector_vat'] = array(
     '#type' => 'fieldset',
     '#title' => t('VAT settings'),

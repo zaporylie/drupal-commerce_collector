@@ -209,19 +209,12 @@ function commerce_collector_submit_form($payment_method, $pane_values, $checkout
 }
 
 /**
- * Payment method callback: submit form validation.
- */
-function commerce_collector_submit_form_validate($payment_method, $pane_form, $pane_values, $order, $form_parents = array()) {
-//  return FALSE;
-}
-
-/**
  * Payment method callback: submit form submission.
  */
 function commerce_collector_submit_form_submit($payment_method, $pane_form, $pane_values, $order, $charge) {
 
   try {
-    // Build wrapper over $order
+    // Build wrapper over $order.
     $wrapper = entity_metadata_wrapper('commerce_order', $order);
 
     $invoice = array(
@@ -346,7 +339,8 @@ function commerce_collector_line_item_vat($unit_price) {
  *
  * @param object $transaction
  *   New or existing transaction.
- * @return boolean
+ *
+ * @return bool
  *   TRUE if saved, FALSE if not.
  */
 function commerce_collector_transaction(&$transaction) {
@@ -523,7 +517,7 @@ function commerce_collector_credit_invoice($transaction) {
 }
 
 /**
- * Implements hook_form_commerce_payment_payment_transaction_delete_form_alter().
+ * Implements hook_FORM_ID_alter().
  */
 function commerce_collector_form_commerce_payment_payment_transaction_delete_form_alter(&$form, &$form_state, $form_id) {
   $form['#submit'][] = 'commerce_collector_payment_transaction_delete_submit';
@@ -555,6 +549,7 @@ function commerce_collector_payment_transaction_delete_submit($form, &$form_stat
  *   WSDL filename corresponding to $method you use.
  * @param string $schema
  *   Name of SOAP schema corresponding to wsdl file.
+ *
  * @return mixed
  *   Exception or result object.
  */
