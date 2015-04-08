@@ -16,6 +16,8 @@ define('COMMERCE_COLLECTOR_PAYMENT_STATUS_SIGNING', 6);
 
 /**
  * Implements hook_menu().
+ *
+ * @todo: Add access permissions for all available methods on invoice.
  */
 function commerce_collector_menu() {
   $items['admin/commerce/config/payment-methods/commerce-collector'] = array(
@@ -534,7 +536,7 @@ function commerce_collector_payment_transaction_delete_submit($form, &$form_stat
   $transaction = $form_state['transaction'];
   if ($transaction->payment_method == "commerce_collector") {
     if (!commerce_collector_deactivate_invoice($transaction)) {
-      drupal_set_message(t('Change status of corresponding invoice in Collector panel manually.', 'warning'));
+      drupal_set_message(t('Change status of corresponding invoice in Collector panel manually.'), 'warning');
     }
   }
 }
