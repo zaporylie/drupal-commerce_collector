@@ -105,7 +105,11 @@ function commerce_collector_submit_form($payment_method, $pane_values, $checkout
 
   // Build wrapper over $order.
   $wrapper = entity_metadata_wrapper('commerce_order', $order);
-  if (isset($wrapper->commerce_customer_billing) && isset($wrapper->commerce_customer_billing->commerce_customer_address) && isset($wrapper->commerce_customer_billing->commerce_customer_address->country)) {
+  $is_billing_address = FALSE;
+  if (isset($wrapper->commerce_customer_billing) && isset($wrapper->commerce_customer_billing->commerce_customer_address)) {
+    $is_billing_address = TRUE;
+  }
+  if ($is_billing_address && isset($wrapper->commerce_customer_billing->commerce_customer_address->country)) {
     $country_code = $wrapper->commerce_customer_billing->commerce_customer_address->country->value();
   }
   else {
@@ -136,24 +140,24 @@ function commerce_collector_submit_form($payment_method, $pane_values, $checkout
     '#type' => 'textfield',
     '#title' => t('First name'),
     '#required' => TRUE,
-    '#default_value' => isset($wrapper->commerce_customer_billing) ? $wrapper->commerce_customer_billing->commerce_customer_address->first_name->value() : '',
+    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->first_name->value() : '',
   );
   $form['address']['Lastname'] = array(
     '#type' => 'textfield',
     '#title' => t('Last name'),
     '#required' => TRUE,
-    '#default_value' => isset($wrapper->commerce_customer_billing) ? $wrapper->commerce_customer_billing->commerce_customer_address->last_name->value() : '',
+    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->last_name->value() : '',
   );
   $form['address']['Address1'] = array(
     '#type' => 'textfield',
     '#title' => t('Address 1'),
     '#required' => TRUE,
-    '#default_value' => isset($wrapper->commerce_customer_billing) ? $wrapper->commerce_customer_billing->commerce_customer_address->thoroughfare->value() : '',
+    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->thoroughfare->value() : '',
   );
   $form['address']['Address2'] = array(
     '#type' => 'textfield',
     '#title' => t('Address 2'),
-    '#default_value' => isset($wrapper->commerce_customer_billing) ? $wrapper->commerce_customer_billing->commerce_customer_address->premise->value() : '',
+    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->premise->value() : '',
   );
   $form['address']['COAddress'] = array(
     '#type' => 'textfield',
@@ -164,20 +168,20 @@ function commerce_collector_submit_form($payment_method, $pane_values, $checkout
     '#type' => 'textfield',
     '#title' => t('City'),
     '#required' => TRUE,
-    '#default_value' => isset($wrapper->commerce_customer_billing) ? $wrapper->commerce_customer_billing->commerce_customer_address->locality->value() : '',
+    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->locality->value() : '',
   );
   $form['address']['CountryCode'] = array(
     '#type' => 'select',
     '#title' => t('Country Code'),
     '#required' => TRUE,
-    '#default_value' => isset($wrapper->commerce_customer_billing) ? $wrapper->commerce_customer_billing->commerce_customer_address->country->value() : '',
+    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->country->value() : '',
     '#options' => _commerce_collector_get_countries(),
   );
   $form['address']['PostalCode'] = array(
     '#type' => 'textfield',
     '#title' => t('Postal Code'),
     '#required' => TRUE,
-    '#default_value' => isset($wrapper->commerce_customer_billing) ? $wrapper->commerce_customer_billing->commerce_customer_address->postal_code->value() : '',
+    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->postal_code->value() : '',
   );
   $form['address']['CellPhoneNumber'] = array(
     '#type' => 'textfield',
