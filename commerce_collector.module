@@ -16,8 +16,6 @@ define('COMMERCE_COLLECTOR_PAYMENT_STATUS_SIGNING', 6);
 
 /**
  * Implements hook_menu().
- *
- * @todo: Add access permissions for all available methods on invoice.
  */
 function commerce_collector_menu() {
   $items['admin/commerce/config/payment-methods/commerce-collector'] = array(
@@ -33,7 +31,7 @@ function commerce_collector_menu() {
     'page callback' => 'commerce_collector_admin_get_invoice',
     'page arguments' => array(3, 5),
     'access callback' => 'commerce_collector_payment_transaction_access',
-    'access arguments' => array('view', 5),
+    'access arguments' => array('retrieve', 5),
     'file' => 'commerce_collector.admin.inc',
     'type' => MENU_LOCAL_ACTION,
   );
@@ -42,7 +40,7 @@ function commerce_collector_menu() {
     'page callback' => 'commerce_collector_admin_activate_invoice',
     'page arguments' => array(3, 5),
     'access callback' => 'commerce_collector_payment_transaction_access',
-    'access arguments' => array('view', 5),
+    'access arguments' => array('activate', 5),
     'file' => 'commerce_collector.admin.inc',
     'type' => MENU_LOCAL_ACTION,
     'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
@@ -52,7 +50,7 @@ function commerce_collector_menu() {
     'page callback' => 'commerce_collector_admin_deactivate_invoice',
     'page arguments' => array(3, 5),
     'access callback' => 'commerce_collector_payment_transaction_access',
-    'access arguments' => array('view', 5),
+    'access arguments' => array('deactivate', 5),
     'file' => 'commerce_collector.admin.inc',
     'type' => MENU_LOCAL_ACTION,
     'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
@@ -81,7 +79,16 @@ function commerce_collector_payment_transaction_access($op, $transaction, $accou
   if ($transaction->payment_method != 'commerce_collector') {
     return FALSE;
   }
-  return commerce_payment_transaction_access($op, $transaction, $account = NULL);
+  if ($transaction->status == COMMERCE_PAYMENT_STATUS_FAILURE && $op == 'deactivate') {
+    return FALSE;
+  }
+  elseif ($transaction->status != COMMERCE_PAYMENT_STATUS_SUCCESS && $op == 'retrieve') {
+    return FALSE;
+  }
+  elseif ($transaction->status != COMMERCE_PAYMENT_STATUS_PENDING && $op == 'activate') {
+    return FALSE;
+  }
+  return commerce_payment_transaction_access('view', $transaction, $account = NULL);
 }
 
 /**
