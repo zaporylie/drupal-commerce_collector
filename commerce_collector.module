@@ -213,11 +213,13 @@ function commerce_collector_submit_form($payment_method, $pane_values, $checkout
     '#default_value' => '',
   );
 
-  $form['confirmation'] = array(
-    '#type' => 'checkbox',
-    '#title' => t('I accept <a href=@href>general terms and conditions for credit agreement</a>.', array('@href' => variable_get('commerce_collector_agreement_path', ''))),
-    '#required' => TRUE,
-  );
+  if ($href = variable_get('commerce_collector_agreement_path', '')) {
+    $form['confirmation'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('I accept <a href=@href>general terms and conditions for credit agreement</a>.', array('@href' => $href)),
+      '#required' => TRUE,
+    );
+  }
   return $form;
 }
 
@@ -397,28 +399,96 @@ function commerce_collector_commerce_order_presave($order) {
   if (variable_get('commerce_collector_invoice_activation', 0) == 0) {
     // Get order status.
     $status = commerce_order_status_load($order->status);
+    $activate_for = variable_get('commerce_collector_invoice_activation_state', array('completed'));
+    $deactivate_for = variable_get('commerce_collector_invoice_deactivation_state', array('canceled'));
 
-    // Get all payments for commerce_collector payment method.
-    $transactions = commerce_payment_transaction_load_multiple(array(), array(
-      'order_id' => $order->order_id,
-      'payment_method' => 'commerce_collector',
-    ));
-
-    $activated = variable_get('commerce_collector_invoice_activation_state', array('completed'));
-    $deactivated = variable_get('commerce_collector_invoice_deactivation_state', array('canceled'));
-    foreach ($transactions as $transaction) {
-      if (in_array($status['state'], $activated)) {
-        if ($transaction->remote_status == COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED) {
-          // Skip rejected invoices.
-          continue;
-        }
-        commerce_collector_activate_invoice($transaction);
-      }
-      elseif (in_array($status['state'], $deactivated)) {
-        commerce_collector_deactivate_invoice($transaction);
-      }
+    if (!empty($activate_for) && in_array($status['state'], $activate_for)) {
+      _commerce_collector_commerce_order_activate($order);
+    }
+    elseif (!empty($deactivate_for) && in_array($status['state'], $deactivate_for)) {
+      _commerce_collector_commerce_order_deactivate($order);
     }
   }
+}
+
+/**
+ * Activate commerce_collector transactions.
+ *
+ * @param object $order
+ *   Order entity.
+ *
+ * @return bool
+ *   TRUE or FALSE.
+ */
+function _commerce_collector_commerce_order_activate($order) {
+  // Find all invoices which can be activated.
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'commerce_payment_transaction')
+    ->propertyCondition('order_id', $order->order_id)
+    ->propertyCondition('payment_method', 'commerce_collector')
+    ->propertyCondition('remote_status', COMMERCE_COLLECTOR_PAYMENT_STATUS_PENDING);
+  $result = $query->execute();
+
+  // Inform only users with update perm to payment transaction.
+  $inform = commerce_payment_transaction_order_access('update', $order);
+
+  if (isset($result['commerce_payment_transaction']) && count($result['commerce_payment_transaction']) == 1) {
+
+    // Get transaction id.
+    $transaction_ids = array_keys($result['commerce_payment_transaction']);
+
+    // Load transaction entity.
+    $transaction = commerce_payment_transaction_load(reset($transaction_ids));
+
+    // Process, activate transaction.
+    return commerce_collector_activate_invoice($transaction);
+  }
+  elseif (isset($result['commerce_payment_transaction']) && count($result['commerce_payment_transaction']) > 1) {
+    if ($inform) {
+      drupal_set_message(t('Unable to auto-activate more than one invoice at the same time. <a href="@href">Manage it manually.</a>', array('@href' => url('admin/commerce/orders/' . $order->order_id . '/payment'))), 'warning');
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * Deactivate commerce_collector transactions.
+ *
+ * @param object $order
+ *   Order entity.
+ *
+ * @return bool
+ *   TRUE or FALSE.
+ */
+function _commerce_collector_commerce_order_deactivate($order) {
+  // Find all invoices which can be activated.
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'commerce_payment_transaction')
+    ->propertyCondition('order_id', $order->order_id)
+    ->propertyCondition('payment_method', 'commerce_collector')
+    ->propertyCondition('remote_status', COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED, '!=');
+  $result = $query->execute();
+
+  // Inform only users with update perm to payment transaction.
+  $inform = commerce_payment_transaction_order_access('update', $order);
+
+  if (isset($result['commerce_payment_transaction']) && count($result['commerce_payment_transaction']) == 1) {
+
+    // Get transaction id.
+    $transaction_ids = array_keys($result['commerce_payment_transaction']);
+
+    // Load transaction entity.
+    $transaction = commerce_payment_transaction_load(reset($transaction_ids));
+
+    // Process, activate transaction.
+    return commerce_collector_deactivate_invoice($transaction);
+  }
+  elseif (isset($result['commerce_payment_transaction']) && count($result['commerce_payment_transaction']) > 1) {
+    if ($inform) {
+      drupal_set_message(t('Unable to auto-deactivate more than one invoice at the same time. <a href="@href">Manage it manually.</a>', array('@href' => url('admin/commerce/orders/' . $order->order_id . '/payment'))), 'warning');
+    }
+  }
+  return FALSE;
 }
 
 /**
