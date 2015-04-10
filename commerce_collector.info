@@ -1,7 +1,8 @@
 name = Collector Payment Method
 description = Provides integration with Collector payments.
 package = Commerce (payment)
+core = 7.x
+configure = admin/commerce/config/payment-methods/commerce-collector
 dependencies[] = commerce
 dependencies[] = commerce_payment
 dependencies[] = commerce_payment_ui
-core = 7.x
