@@ -31,3 +31,19 @@ function commerce_collector_requirements($phase) {
 
   return $requirements;
 }
+
+/**
+ * Implements hook_enable().
+ */
+function commerce_collector_enable() {
+  commerce_product_line_item_configuration(array('type' => 'collector_fee'));
+}
+
+/**
+ * Implements of hook_uninstall().
+ */
+function commerce_collector_uninstall() {
+  module_load_include('module', 'commerce');
+  // Delete any field instance attached to a cod_fee line item.
+  commerce_delete_instances('commerce_line_item', 'collector_fee');
+}
