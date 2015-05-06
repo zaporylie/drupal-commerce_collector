@@ -62,6 +62,27 @@ function commerce_collector_menu() {
 }
 
 /**
+ * Access callback.
+ *
+ * Verify if payment method is commerce_collector.
+ */
+function commerce_collector_payment_transaction_access($op, $transaction, $account = NULL) {
+  if ($transaction->payment_method != 'commerce_collector') {
+    return FALSE;
+  }
+  if ($transaction->status == COMMERCE_PAYMENT_STATUS_FAILURE && $op == 'deactivate') {
+    return FALSE;
+  }
+  elseif ($transaction->status != COMMERCE_PAYMENT_STATUS_SUCCESS && $op == 'retrieve') {
+    return FALSE;
+  }
+  elseif ($transaction->status != COMMERCE_PAYMENT_STATUS_PENDING && $op == 'activate') {
+    return FALSE;
+  }
+  return commerce_payment_transaction_access('view', $transaction, $account = NULL);
+}
+
+/**
  * Implements hook_permission().
  */
 function commerce_collector_permission() {
@@ -71,6 +92,119 @@ function commerce_collector_permission() {
       'description' => t('By default data will be taken from billing profile.'),
     ),
   );
+}
+
+/**
+ * Implements hook_commerce_payment_method_info().
+ */
+function commerce_collector_commerce_payment_method_info() {
+  $payment_methods = array();
+
+  $payment_methods['commerce_collector'] = array(
+    'title' => t('Collector'),
+    'description' => t('Collector external payment gateway.'),
+    'active' => TRUE,
+  );
+
+  return $payment_methods;
+}
+
+/**
+ * Implements hook_commerce_price_component_type_info().
+ */
+function commerce_collector_commerce_price_component_type_info() {
+  return array(
+    'collector_fee' => array(
+      'title' => t('Collector fee'),
+      'weight' => 100,
+    ),
+  );
+}
+
+/**
+ * Implements hook_commerce_line_item_type_info().
+ *
+ * Define an cod_fee line-item type.
+ */
+function commerce_collector_commerce_line_item_type_info() {
+  return array(
+    'collector_fee' => array(
+      'type' => 'collector_fee',
+      'name' => t('Collector payment fee'),
+      'description' => t('Line item for charging an extra fee for Collector payment.'),
+      'add_form_submit_value' => t('Add an extra fee'),
+      'base' => 'commerce_collector_line_item',
+    ),
+  );
+}
+
+/**
+ * Determine the discount's line item title.
+ *
+ * @return
+ *   The line item title.
+ */
+function commerce_collector_line_item_title() {
+  return t('Payment fee');
+}
+
+/**
+ * Checks if an order contains a cod_fee line item.
+ *
+ * @param object $order
+ *   The order object to check for a cod_fee line item.
+ *
+ * @return bool
+ *   TRUE if the order contains a cot_fee line item.
+ */
+function commerce_collector_line_item_exists($order) {
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  foreach ($order_wrapper->commerce_line_items->getIterator() as $line_item_wrapper) {
+    // If this line item is a cod_fee line item...
+    if (isset($line_item_wrapper->type) && $line_item_wrapper->type->value() == 'collector_fee') {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * Implements hook_commerce_cart_line_item_refresh().
+ *
+ * Make sure we delete the fee line item if we have one and the payment method
+ * is no longer collector_fee.
+ */
+function commerce_collector_commerce_cart_line_item_refresh($line_item, $order_wrapper) {
+  if ($line_item->type == 'collector_fee') {
+    $order = $order_wrapper->value();
+    if ((isset($order->data['payment_method']) && !(strpos($order->data['payment_method'], 'commerce_collector|') === 0)) || isset($order->data['no_payment'])) {
+      $line_item_wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
+      $line_item_wrapper->delete();
+    }
+  }
+}
+
+/**
+ * Implements hook_commerce_cart_order_refresh().
+ *
+ * Make sure we delete the cod fee line item if we have one and the payment
+ * method is no longer cash on delivery.
+ */
+function commerce_collector_commerce_cart_order_refresh($order_wrapper) {
+  foreach ($order_wrapper->commerce_line_items->getIterator() as $line_item_wrapper) {
+    $line_item = $line_item_wrapper->value();
+    if ($line_item->type == 'collector_fee') {
+      $order = $order_wrapper->value();
+      if ((isset($order->data['payment_method']) && !(strpos($order->data['payment_method'], 'commerce_collector|') === 0)) || isset($order->data['no_payment'])) {
+        // Remove the line item from the line item reference field.
+        // This will trigger the function that called this hook to save the
+        // order because it has changed.
+        commerce_entity_reference_delete($order, 'commerce_line_items', 'line_item_id', $line_item->line_item_id);
+        // Delete the actual line item.
+        commerce_line_item_delete($line_item->line_item_id);
+      }
+    }
+  }
 }
 
 /**
@@ -114,6 +248,24 @@ function commerce_collector_settings_form($settings = array()) {
     '#title' => t('Absolute path to collector agreement.'),
     '#default_value' => $settings['commerce_collector_login']['commerce_collector_password'],
     '#description' => t('If this field is not empty, required "agree to terms & conditions" checkbox will be added to payment form.'),
+  );
+  $form['commerce_collector_login']['commerce_collector_fee'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Collect an extra fee.'),
+    '#description' => t('Check this box to specify an extra fee.'),
+    '#default_value' => $settings['commerce_collector_login']['commerce_collector_fee'],
+  );
+  $form['commerce_collector_login']['commerce_collector_fee_amount'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Amount of the extra fee.'),
+    '#description' => t('Give the ammount you want to use if this method is selected. Be aware that this needs to be in minor units aks cents.'),
+    '#default_value' => $settings['commerce_collector_login']['commerce_collector_fee_amount'],
+    '#element_validate' => array('element_validate_number'),
+    '#states' => array(
+      'visible' => array(
+        ':input[name="parameter[payment_method][settings][payment_method][settings][commerce_collector_login][commerce_collector_fee]"]' => array('checked' => TRUE),
+      ),
+    ),
   );
 
   $form['commerce_collector_invoice'] = array(
@@ -224,42 +376,6 @@ function commerce_collector_settings_form($settings = array()) {
     ),
   );
   return $form;
-}
-
-/**
- * Access callback.
- *
- * Verify if payment method is commerce_collector.
- */
-function commerce_collector_payment_transaction_access($op, $transaction, $account = NULL) {
-  if ($transaction->payment_method != 'commerce_collector') {
-    return FALSE;
-  }
-  if ($transaction->status == COMMERCE_PAYMENT_STATUS_FAILURE && $op == 'deactivate') {
-    return FALSE;
-  }
-  elseif ($transaction->status != COMMERCE_PAYMENT_STATUS_SUCCESS && $op == 'retrieve') {
-    return FALSE;
-  }
-  elseif ($transaction->status != COMMERCE_PAYMENT_STATUS_PENDING && $op == 'activate') {
-    return FALSE;
-  }
-  return commerce_payment_transaction_access('view', $transaction, $account = NULL);
-}
-
-/**
- * Implements hook_commerce_payment_method_info().
- */
-function commerce_collector_commerce_payment_method_info() {
-  $payment_methods = array();
-
-  $payment_methods['commerce_collector'] = array(
-    'title' => t('Collector'),
-    'description' => t('Collector external payment gateway.'),
-    'active' => TRUE,
-  );
-
-  return $payment_methods;
 }
 
 /**
@@ -396,7 +512,14 @@ function commerce_collector_submit_form($payment_method, $pane_values, $checkout
  */
 function commerce_collector_submit_form_submit($payment_method, $pane_form, $pane_values, $order, $charge) {
 
+  module_load_include('inc', 'commerce_collector', 'commerce_collector');
+
+  // Loads default settings.
   _commerce_collector_defaults($payment_method['settings']);
+
+  // Adds nee line item with payment fee (only one no matter how many
+  // transactions has been registered).
+  commerce_collector_fee_line_item($payment_method, $order);
 
   try {
     // Build wrapper over $order.
@@ -438,8 +561,8 @@ function commerce_collector_submit_form_submit($payment_method, $pane_form, $pan
     $invoice['InvoiceRows'] = array();
     foreach ($wrapper->commerce_line_items->getIterator() as $line) {
       $invoice['InvoiceRows'][] = array(
-        'ArticleId' => isset($line->commerce_product) && isset($line->commerce_product) ? $line->commerce_product->sku->value() : $line->getIdentifier(),
-        'Description' => isset($line->commerce_product) ? $line->commerce_product->label() : $line->line_item_label->value(),
+        'ArticleId' => isset($line->commerce_product) && $line->commerce_product->value() && isset($line->commerce_product->sku) ? $line->commerce_product->sku->value() : $line->getIdentifier(),
+        'Description' => isset($line->commerce_product) && $line->commerce_product->label() ? $line->commerce_product->label() : $line->line_item_label->value(),
         'Quantity' => $line->quantity->value(),
         'UnitPrice' => $line->commerce_unit_price->amount->value() / 100,
         'VAT' => _commerce_collector_line_item_vat($payment_method, $line->commerce_unit_price->value()),
@@ -490,6 +613,9 @@ function commerce_collector_submit_form_submit($payment_method, $pane_form, $pan
     return FALSE;
   }
 
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  $charge = $order_wrapper->commerce_order_total->value();
+
   // Create and save transaction.
   $transaction = commerce_payment_transaction_new('commerce_collector', $order->order_id);
   $transaction->instance_id = $payment_method['instance_id'];
@@ -499,7 +625,8 @@ function commerce_collector_submit_form_submit($payment_method, $pane_form, $pan
   $transaction->data['invoice'] = (array) $result;
   $transaction->remote_id = $result->InvoiceNo;
   $transaction->remote_status = $result->InvoiceStatus;
-  if (!commerce_collector_transaction($transaction)) {
+
+  if (!commerce_collector_save_transaction($transaction)) {
     drupal_set_message(t('Unable to process transaction right now, please try again.', 'error'));
     return FALSE;
   }
@@ -510,77 +637,13 @@ function commerce_collector_submit_form_submit($payment_method, $pane_form, $pan
 }
 
 /**
- * Calculate VAT for line item.
- *
- * Two methods available - VAT or Fixed Vat Rate (configurable with variable).
+ * Implements hook_form_FORM_ID_alter().
  */
-function _commerce_collector_line_item_vat($payment_method, $unit_price) {
-  $use_vat_module = $payment_method['settings']['commerce_collector_vat']['commerce_collector_use_vat_module'];
-  // Use vat module based rate or fixed one.
-  if (!$use_vat_module) {
-    return $payment_method['settings']['commerce_collector_vat']['commerce_collector_fixed_vat_rate'];
+function commerce_collector_form_commerce_payment_order_transaction_add_form_alter(&$form, &$form_state) {
+  if (isset($form_state['payment_method']['method_id']) && $form_state['payment_method']['method_id'] == 'commerce_collector') {
+    $form['payment_terminal']['amount']['#access'] = FALSE;
+    $form['payment_terminal']['currency_code']['#access'] = FALSE;
   }
-  // Check if price has components.
-  if (!isset($unit_price['data']['components'])) {
-    return 0;
-  }
-  // Get all VAT components.
-  $components = $unit_price['data']['components'];
-  $components = commerce_vat_components($components);
-  if (empty($components)) {
-    return 0;
-  }
-  // Get first element only. More than one VAT rate per item is not a common
-  // case.
-  $vat = reset($components);
-  if (!isset($vat['price']['data']['vat_rate_info']['rate'])) {
-    return 0;
-  }
-  // Return vat rate (in percents).
-  return $vat['price']['data']['vat_rate_info']['rate'] * 100;
-}
-
-/**
- * Creates an example payment transaction for the specified charge amount.
- *
- * @param object $transaction
- *   New or existing transaction.
- *
- * @return bool
- *   TRUE if saved, FALSE if not.
- */
-function commerce_collector_transaction(&$transaction) {
-  switch ($transaction->remote_status) {
-    case COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED:
-      $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
-      break;
-
-    case COMMERCE_COLLECTOR_PAYMENT_STATUS_ON_HOLD:
-    case COMMERCE_COLLECTOR_PAYMENT_STATUS_PENDING:
-    case COMMERCE_COLLECTOR_PAYMENT_STATUS_SIGNING:
-      $transaction->status = COMMERCE_PAYMENT_STATUS_PENDING;
-      break;
-
-    case COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED:
-      $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
-      break;
-  }
-
-  if ($transaction->remote_status == COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED) {
-    $transaction->message = 'Invoice @number has been rejected.';
-  }
-  elseif ($transaction->remote_status == COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED) {
-    $transaction->message = 'Invoice @number has been activated.';
-  }
-  else {
-    $transaction->message = 'Invoice @number has a pending status (@status) now';
-  }
-  $transaction->message_variables = array(
-    '@number' => $transaction->remote_id,
-    '@status' => $transaction->remote_status,
-  );
-
-  return commerce_payment_transaction_save($transaction);
 }
 
 /**
@@ -589,6 +652,7 @@ function commerce_collector_transaction(&$transaction) {
 function commerce_collector_commerce_order_presave($order) {
   if (isset($order->data['payment_method']) && $payment_method = commerce_payment_method_instance_load($order->data['payment_method'])) {
 
+    // Load payment method instance to retrieve instance settings.
     _commerce_collector_defaults($payment_method['settings']);
 
     if ($payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_activation'] == COMMERCE_COLLECTOR_INVOICE_ACTIVATION_MANUAL) {
@@ -598,207 +662,14 @@ function commerce_collector_commerce_order_presave($order) {
       $deactivate_for = $payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_deactivation_state'];
 
       if (!empty($activate_for) && in_array($status['state'], $activate_for)) {
+        module_load_include('inc', 'commerce_collector', 'commerce_collector');
         _commerce_collector_commerce_order_activate($order);
       }
       elseif (!empty($deactivate_for) && in_array($status['state'], $deactivate_for)) {
+        module_load_include('inc', 'commerce_collector', 'commerce_collector');
         _commerce_collector_commerce_order_deactivate($order);
       }
     }
-  }
-}
-
-/**
- * Activate commerce_collector transactions.
- *
- * @param object $order
- *   Order entity.
- *
- * @return bool
- *   TRUE or FALSE.
- */
-function _commerce_collector_commerce_order_activate($order) {
-  // Find all invoices which can be activated.
-  $query = new EntityFieldQuery();
-  $query->entityCondition('entity_type', 'commerce_payment_transaction')
-    ->propertyCondition('order_id', $order->order_id)
-    ->propertyCondition('payment_method', 'commerce_collector')
-    ->propertyCondition('remote_status', COMMERCE_COLLECTOR_PAYMENT_STATUS_PENDING);
-  $result = $query->execute();
-
-  // Inform only users with update perm to payment transaction.
-  $inform = commerce_payment_transaction_order_access('update', $order);
-
-  if (isset($result['commerce_payment_transaction']) && count($result['commerce_payment_transaction']) == 1) {
-
-    // Get transaction id.
-    $transaction_ids = array_keys($result['commerce_payment_transaction']);
-
-    // Load transaction entity.
-    $transaction = commerce_payment_transaction_load(reset($transaction_ids));
-
-    // Process, activate transaction.
-    return commerce_collector_activate_invoice($transaction);
-  }
-  elseif (isset($result['commerce_payment_transaction']) && count($result['commerce_payment_transaction']) > 1) {
-    if ($inform) {
-      drupal_set_message(t('Unable to auto-activate more than one invoice at the same time. <a href="@href">Manage it manually.</a>', array('@href' => url('admin/commerce/orders/' . $order->order_id . '/payment'))), 'warning');
-    }
-  }
-  return FALSE;
-}
-
-/**
- * Deactivate commerce_collector transactions.
- *
- * @param object $order
- *   Order entity.
- *
- * @return bool
- *   TRUE or FALSE.
- */
-function _commerce_collector_commerce_order_deactivate($order) {
-  // Find all invoices which can be activated.
-  $query = new EntityFieldQuery();
-  $query->entityCondition('entity_type', 'commerce_payment_transaction')
-    ->propertyCondition('order_id', $order->order_id)
-    ->propertyCondition('payment_method', 'commerce_collector')
-    ->propertyCondition('remote_status', COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED, '!=');
-  $result = $query->execute();
-
-  // Inform only users with update perm to payment transaction.
-  $inform = commerce_payment_transaction_order_access('update', $order);
-
-  if (isset($result['commerce_payment_transaction']) && count($result['commerce_payment_transaction']) == 1) {
-
-    // Get transaction id.
-    $transaction_ids = array_keys($result['commerce_payment_transaction']);
-
-    // Load transaction entity.
-    $transaction = commerce_payment_transaction_load(reset($transaction_ids));
-
-    // Process, activate transaction.
-    return commerce_collector_deactivate_invoice($transaction);
-  }
-  elseif (isset($result['commerce_payment_transaction']) && count($result['commerce_payment_transaction']) > 1) {
-    if ($inform) {
-      drupal_set_message(t('Unable to auto-deactivate more than one invoice at the same time. <a href="@href">Manage it manually.</a>', array('@href' => url('admin/commerce/orders/' . $order->order_id . '/payment'))), 'warning');
-    }
-  }
-  return FALSE;
-}
-
-/**
- * Activate invoice for payment.
- */
-function commerce_collector_activate_invoice($transaction) {
-
-  $payment_method = commerce_payment_method_instance_load($transaction->instance_id);
-
-  // If invoice was already canceled.
-  if ($transaction->remote_status == COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED && $transaction->status == COMMERCE_PAYMENT_STATUS_SUCCESS) {
-    return TRUE;
-  }
-
-  // Remote status was changed but local was outdated.
-  if ($transaction->remote_status == COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED) {
-    commerce_collector_transaction($transaction);
-    return TRUE;
-  }
-  try {
-    $data = array(
-      'CountryCode' => $transaction->data['pane_values']['country'],
-      'InvoiceNo' => $transaction->remote_id,
-    );
-    $result = _commerce_collector_request($data, $payment_method, 'ActivateInvoice');
-    $transaction->remote_status = COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED;
-    $transaction->data['invoice'] = (array) $result;
-    commerce_collector_transaction($transaction);
-    drupal_set_message(t('Invoice @number has been activated.', array('@number' => $transaction->remote_id)));
-    return TRUE;
-  }
-  catch (Exception $e) {
-    $uri = commerce_payment_ui_payment_transaction_uri($transaction);
-    if (isset($e->faultcode) && $e->faultcode == "s:INVOICE_NOT_FOUND") {
-      drupal_set_message(t('Unable to change status of <a href=@href>payment transaction</a>. You cannot change status of invoice which has been already rejected. Create new invoice instead.', array('@href' => url($uri['path']))), 'error');
-    }
-    else {
-      drupal_set_message(t('Unable to change status of <a href=@href>payment transaction</a>. Please contact administrator.', array('@href' => url($uri['path']))), 'error');
-    }
-    watchdog('commerce_collector', print_r($e, TRUE), array(), WATCHDOG_ERROR);
-    return FALSE;
-  }
-}
-
-/**
- * Deactivate invoice for payment.
- */
-function commerce_collector_deactivate_invoice($transaction) {
-
-  $payment_method = commerce_payment_method_instance_load($transaction->instance_id);
-
-  // If invoice was already canceled.
-  if ($transaction->remote_status == COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED && $transaction->status == COMMERCE_PAYMENT_STATUS_FAILURE) {
-    return TRUE;
-  }
-
-  // Remote status was changed but local was outdated.
-  if ($transaction->remote_status == COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED) {
-    commerce_collector_transaction($transaction);
-    return TRUE;
-  }
-  try {
-    $data = array(
-      'CountryCode' => $transaction->data['pane_values']['country'],
-      'InvoiceNo' => $transaction->remote_id,
-    );
-    // Try to deactivate invoice.
-    $result = _commerce_collector_request($data, $payment_method, 'CancelInvoice');
-    // If succeed - change transaction status.
-    $transaction->remote_status = COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED;
-    $transaction->data['invoice'] = (array) $result;
-    commerce_collector_transaction($transaction);
-    drupal_set_message(t('Invoice @number has been rejected.', array('@number' => $transaction->remote_id)));
-    return TRUE;
-  }
-  catch (Exception $e) {
-    $uri = commerce_payment_ui_payment_transaction_uri($transaction);
-    if (isset($e->faultcode) && $e->faultcode == "s:INVALID_INVOICE_STATUS") {
-      // In case Invoice was activated before try credit it.
-      return commerce_collector_credit_invoice($transaction);
-    }
-    else {
-      drupal_set_message(t('Unable to change status of <a href=@href>payment transaction</a>. Please contact administrator.', array('@href' => url($uri['path']))), 'error');
-      watchdog('commerce_collector', print_r($e, TRUE), array(), WATCHDOG_ERROR);
-      return FALSE;
-    }
-  }
-}
-
-/**
- * Credit invoice.
- */
-function commerce_collector_credit_invoice($transaction) {
-
-  $payment_method = commerce_payment_method_instance_load($transaction->instance_id);
-
-  try {
-    $data = array(
-      'CountryCode' => $transaction->data['pane_values']['country'],
-      'InvoiceNo' => $transaction->remote_id,
-      'CreditDate' => format_date(REQUEST_TIME, 'custom', 'Y-m-d\TH:i:sP'),
-    );
-    $result = _commerce_collector_request($data, $payment_method, 'CreditInvoice');
-    $transaction->remote_status = COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED;
-    $transaction->data['invoice'] = (array) $result;
-    commerce_collector_transaction($transaction);
-    drupal_set_message(t('Invoice @number has been credited.', array('@number' => $transaction->remote_id)));
-    return TRUE;
-  }
-  catch (Exception $e) {
-    $uri = commerce_payment_ui_payment_transaction_uri($transaction);
-    drupal_set_message(t('Unable to change status of <a href=@href>payment transaction</a>. Please contact administrator.', array('@href' => url($uri['path']))), 'error');
-    watchdog('commerce_collector', print_r($e, TRUE), array(), WATCHDOG_ERROR);
-    return FALSE;
   }
 }
 
@@ -815,50 +686,11 @@ function commerce_collector_form_commerce_payment_payment_transaction_delete_for
 function commerce_collector_payment_transaction_delete_submit($form, &$form_state) {
   $transaction = $form_state['transaction'];
   if ($transaction->payment_method == "commerce_collector") {
+    module_load_include('inc', 'commerce_collector', 'commerce_collector');
     if (!commerce_collector_deactivate_invoice($transaction)) {
       drupal_set_message(t('Change status of corresponding invoice in Collector panel manually.'), 'warning');
     }
   }
-}
-
-/**
- * Send request to Collector endpoint and get response.
- *
- * If you want to trigger this function wrap it with try..catch because it will
- * return Exception in case of any problems with request.
- *
- * @param array $data
- *   Array of arguments passed to soap call.
- * @param string $method
- *   Method name should be consistent with Collector specs.
- * @param string $wsdl
- *   WSDL filename corresponding to $method you use.
- * @param string $schema
- *   Name of SOAP schema corresponding to wsdl file.
- *
- * @return mixed
- *   Exception or result object.
- */
-function _commerce_collector_request(array $data, $payment_method, $method, $wsdl = 'InvoiceServiceV32.svc', $schema = 'InvoiceService') {
-
-  _commerce_collector_defaults($payment_method['settings']);
-
-  $environment = $payment_method['settings']['commerce_collector_login']['commerce_collector_environment'];
-
-  $client = new SoapClient($environment . $wsdl . '?singleWsdl', array(
-    'trace' => TRUE,
-    'features' => SOAP_SINGLE_ELEMENT_ARRAYS,
-  ));
-
-  $headers = array();
-  $headers[] = new SoapHeader('http://schemas.ecommerce.collector.se/v30/' . $schema, 'ClientIpAddress', $_SERVER['SERVER_ADDR']);
-  $headers[] = new SoapHeader('http://schemas.ecommerce.collector.se/v30/' . $schema, 'Username', $payment_method['settings']['commerce_collector_login']['commerce_collector_username']);
-  $headers[] = new SoapHeader('http://schemas.ecommerce.collector.se/v30/' . $schema, 'Password', $payment_method['settings']['commerce_collector_login']['commerce_collector_password']);
-  $client->__setSoapHeaders($headers);
-
-  $result = $client->{$method}($data);
-
-  return $result;
 }
 
 /**
@@ -938,6 +770,9 @@ function _commerce_collector_fault_codes_messages($code = NULL) {
   }
 }
 
+/**
+ * Payment method: default values.
+ */
 function _commerce_collector_defaults(&$settings) {
   $settings += array(
     'commerce_collector_login' => array(),
@@ -949,6 +784,8 @@ function _commerce_collector_defaults(&$settings) {
     'commerce_collector_username' => NULL,
     'commerce_collector_password' => NULL,
     'commerce_collector_agreement_path' => NULL,
+    'commerce_collector_fee' => FALSE,
+    'commerce_collector_fee_amount' => 0,
   );
   $settings['commerce_collector_invoice'] += array(
     'commerce_collector_invoice_country' => array(),
