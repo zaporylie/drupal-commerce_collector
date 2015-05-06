@@ -8,6 +8,9 @@
  * Page callback to retrieve invoice via Collector API.
  */
 function commerce_collector_admin_get_invoice($order, $transaction) {
+
+  module_load_include('inc', 'commerce_collector', 'commerce_collector');
+
   $data = array(
     'CountryCode' => $transaction->data['pane_values']['country'],
     'InvoiceNo' => $transaction->remote_id,
@@ -33,6 +36,9 @@ function commerce_collector_admin_get_invoice($order, $transaction) {
  * Wrapper over commerce_collector_activate_invoice() function.
  */
 function commerce_collector_admin_activate_invoice($order, $transaction) {
+
+  module_load_include('inc', 'commerce_collector', 'commerce_collector');
+
   commerce_collector_activate_invoice($transaction);
   // @todo: Use entity_uri.
   drupal_goto('admin/commerce/orders/' . $order->order_id . '/payment/' . $transaction->transaction_id);
@@ -42,6 +48,9 @@ function commerce_collector_admin_activate_invoice($order, $transaction) {
  * Wrapper over commerce_collector_deactivate_invoice() function.
  */
 function commerce_collector_admin_deactivate_invoice($order, $transaction) {
+
+  module_load_include('inc', 'commerce_collector', 'commerce_collector');
+
   commerce_collector_deactivate_invoice($transaction);
   // @todo: Use entity_uri.
   drupal_goto('admin/commerce/orders/' . $order->order_id . '/payment/' . $transaction->transaction_id);
