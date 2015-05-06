@@ -525,7 +525,7 @@ function commerce_collector_submit_form_submit($payment_method, $pane_form, $pan
 
   _commerce_collector_defaults($payment_method['settings']);
 
-  commerce_collector_create_line_item($payment_method, $order);
+  commerce_collector_fee_line_item($payment_method, $order);
 
   try {
     // Build wrapper over $order.
@@ -566,8 +566,14 @@ function commerce_collector_submit_form_submit($payment_method, $pane_form, $pan
 
     $invoice['InvoiceRows'] = array();
     foreach ($wrapper->commerce_line_items->getIterator() as $line) {
+      if (isset($line->commerce_product)) {
+        $product = $line->commerce_product;
+      }
+      else {
+        $product = NULL;
+      }
       $invoice['InvoiceRows'][] = array(
-        'ArticleId' => isset($line->commerce_product) && isset($line->commerce_product) ? $line->commerce_product->sku->value() : $line->getIdentifier(),
+        'ArticleId' => isset($product) && $product->value() && isset($product->sku) ? $line->commerce_product->sku->value() : $line->getIdentifier(),
         'Description' => isset($line->commerce_product) ? $line->commerce_product->label() : $line->line_item_label->value(),
         'Quantity' => $line->quantity->value(),
         'UnitPrice' => $line->commerce_unit_price->amount->value() / 100,
@@ -619,6 +625,9 @@ function commerce_collector_submit_form_submit($payment_method, $pane_form, $pan
     return FALSE;
   }
 
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  $charge = $order_wrapper->commerce_order_total->value();
+
   // Create and save transaction.
   $transaction = commerce_payment_transaction_new('commerce_collector', $order->order_id);
   $transaction->instance_id = $payment_method['instance_id'];
@@ -639,36 +648,41 @@ function commerce_collector_submit_form_submit($payment_method, $pane_form, $pan
   $order->data['commerce_collector']['transaction'] = $transaction;
 }
 
-function commerce_collector_create_line_item($payment_method, $order) {
 
-  if (!commerce_collector_line_item_exists($order) && $payment_method['settings']['commerce_collector_login']['commerce_collector_fee']) {
+function commerce_collector_fee_line_item($payment_method, $order, $delete = FALSE) {
 
-    // Create the new line item.
-    $line_item = commerce_line_item_new('commerce_collector_fee', $order->order_id);
+  if (!commerce_collector_line_item_exists($order)) {
 
-    // Wrap the line item to simplify manipulating their field data.
-    $line_item_wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
+    if ($payment_method['settings']['commerce_collector_login']['commerce_collector_fee']) {
 
-    // Populate the $line_item_wrapper...
-    $line_item_wrapper->line_item_label = t('COD fee');
-    $line_item_wrapper->quantity = 1;
-    $line_item_wrapper->commerce_unit_price->amount = $payment_method['settings']['commerce_collector_login']['commerce_collector_fee_amount'];
-    $line_item_wrapper->commerce_unit_price->currency_code = commerce_default_currency();
+      // Create the new line item.
+      $line_item = commerce_line_item_new('collector_fee', $order->order_id);
 
-    // Set the price component of the unit price.
-    $line_item_wrapper->commerce_unit_price->data = commerce_price_component_add(
-      $line_item_wrapper->commerce_unit_price->value(),
-      'collector_fee',
-      $line_item_wrapper->commerce_unit_price->value(),
-      TRUE,
-      FALSE
-    );
-    commerce_line_item_save($line_item);
+      // Wrap the line item to simplify manipulating their field data.
+      $line_item_wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
 
-    $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
-    $order_wrapper->commerce_line_items[] = $line_item;
-    commerce_order_save($order);
+      // Populate the $line_item_wrapper...
+      $line_item_wrapper->line_item_label = t('Collector fee');
+      $line_item_wrapper->quantity = 1;
+      $line_item_wrapper->commerce_unit_price->amount = $payment_method['settings']['commerce_collector_login']['commerce_collector_fee_amount'];
+      $line_item_wrapper->commerce_unit_price->currency_code = commerce_default_currency();
+
+      // Set the price component of the unit price.
+      $line_item_wrapper->commerce_unit_price->data = commerce_price_component_add(
+        $line_item_wrapper->commerce_unit_price->value(),
+        'collector_fee',
+        $line_item_wrapper->commerce_unit_price->value(),
+        TRUE,
+        FALSE
+      );
+      commerce_line_item_save($line_item);
+
+      $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+      $order_wrapper->commerce_line_items[] = $line_item;
+      return commerce_order_save($order);
+    }
   }
+  return FALSE;
 }
 
 /**
@@ -678,7 +692,7 @@ function commerce_collector_form_commerce_payment_order_transaction_add_form_alt
   if (isset($form_state['payment_method']['method_id']) && $form_state['payment_method']['method_id'] == 'commerce_collector' && isset($form_state['order'])) {
     $order_wrapper = entity_metadata_wrapper('commerce_order', $form_state['order']);
     $form['payment_terminal']['amount']['#access'] = FALSE;
-    $form['payment_terminal']['amount']['#default_value'] = commerce_currency_amount_to_decimal($order_wrapper->commerce_order_total->amount->value(), $order_wrapper->commerce_order_total->currency_code->value());
+//    $form['payment_terminal']['amount']['#default_value'] = commerce_currency_amount_to_decimal($order_wrapper->commerce_order_total->amount->value(), $order_wrapper->commerce_order_total->currency_code->value());
     $form['payment_terminal']['currency_code']['#access'] = FALSE;
   }
 }
