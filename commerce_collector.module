@@ -243,6 +243,12 @@ function commerce_collector_settings_form($settings = array()) {
     '#default_value' => $settings['commerce_collector_login']['commerce_collector_password'],
     '#description' => t('You should get this data from Collector.'),
   );
+  $form['commerce_collector_login']['commerce_collector_store_id'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Store ID'),
+    '#default_value' => $settings['commerce_collector_login']['commerce_collector_store_id'],
+    '#description' => t('You should get this data from Collector.'),
+  );
   $form['commerce_collector_login']['commerce_collector_agreement_path'] = array(
     '#type' => 'textfield',
     '#title' => t('Absolute path to collector agreement.'),
@@ -586,6 +592,10 @@ function commerce_collector_submit_form_submit($payment_method, $pane_form, $pan
     $invoice['OrderNo'] = $order->order_id;
     $invoice['OrderDate'] = format_date($order->created, 'custom', 'Y-m-d\TH:i:sP');
     $invoice['RegNo'] = $pane_values['personal_number'];
+
+    if ($store_id = $payment_method['settings']['commerce_collector_login']['commerce_collector_store_id']) {
+      $invoice['StoreId'] = $store_id;
+    }
   }
   catch (Exception $e) {
     // Set form error if it is not possible to prepare correct request.
@@ -783,6 +793,7 @@ function _commerce_collector_defaults(&$settings) {
     'commerce_collector_environment' => 'https://ecommercetest.collector.se/v3.0/InvoiceServiceV32.svc?singleWsdl',
     'commerce_collector_username' => NULL,
     'commerce_collector_password' => NULL,
+    'commerce_collector_store_id' => NULL,
     'commerce_collector_agreement_path' => NULL,
     'commerce_collector_fee' => FALSE,
     'commerce_collector_fee_amount' => 0,
