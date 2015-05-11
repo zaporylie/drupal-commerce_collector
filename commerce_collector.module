@@ -252,7 +252,7 @@ function commerce_collector_settings_form($settings = array()) {
   $form['commerce_collector_login']['commerce_collector_agreement_path'] = array(
     '#type' => 'textfield',
     '#title' => t('Absolute path to collector agreement.'),
-    '#default_value' => $settings['commerce_collector_login']['commerce_collector_password'],
+    '#default_value' => $settings['commerce_collector_login']['commerce_collector_agreement_path'],
     '#description' => t('If this field is not empty, required "agree to terms & conditions" checkbox will be added to payment form.'),
   );
   $form['commerce_collector_login']['commerce_collector_fee'] = array(
