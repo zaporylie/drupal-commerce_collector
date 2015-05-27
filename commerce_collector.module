@@ -249,11 +249,19 @@ function commerce_collector_settings_form($settings = array()) {
     '#default_value' => $settings['commerce_collector_login']['commerce_collector_store_id'],
     '#description' => t('You should get this data from Collector.'),
   );
-  $form['commerce_collector_login']['commerce_collector_agreement_path'] = array(
+  $form['commerce_collector_login']['commerce_collector_credit_terms'] = array(
     '#type' => 'textfield',
-    '#title' => t('Absolute path to collector agreement.'),
-    '#default_value' => $settings['commerce_collector_login']['commerce_collector_agreement_path'],
-    '#description' => t('If this field is not empty, required "agree to terms & conditions" checkbox will be added to payment form.'),
+    '#title' => t('Absolute path to collector credit terms.'),
+    '#default_value' => $settings['commerce_collector_login']['commerce_collector_credit_terms'],
+    '#required' => TRUE,
+    '#description' => t('You should get link to online PDF document from Collector.'),
+  );
+  $form['commerce_collector_login']['commerce_collector_secci'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Absolute path to secci information.'),
+    '#default_value' => $settings['commerce_collector_login']['commerce_collector_secci'],
+    '#required' => TRUE,
+    '#description' => t('You should get link to online PDF document from Collector.'),
   );
   $form['commerce_collector_login']['commerce_collector_fee'] = array(
     '#type' => 'checkbox',
@@ -502,14 +510,11 @@ function commerce_collector_submit_form($payment_method, $pane_values, $checkout
     '#title' => t('Phone number'),
     '#default_value' => '',
   );
-
-  if ($href = $payment_method['settings']['commerce_collector_login']['commerce_collector_agreement_path']) {
-    $form['confirmation'] = array(
-      '#type' => 'checkbox',
-      '#title' => t('I accept <a href="@href">general terms and conditions for credit agreement</a>.', array('@href' => $href)),
-      '#required' => TRUE,
-    );
-  }
+  $form['confirmation'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('I accept <a href="@credit_terms">general terms and conditions for credit agreement</a> and <a href="@secci">standard european consumer credit information</a>.', array('@credit_terms' => variable_get('commerce_collector_credit_terms', '#'), '@secci' => variable_get('commerce_collector_secci', '#'))),
+    '#required' => TRUE,
+  );
   return $form;
 }
 
@@ -794,7 +799,8 @@ function _commerce_collector_defaults(&$settings) {
     'commerce_collector_username' => NULL,
     'commerce_collector_password' => NULL,
     'commerce_collector_store_id' => NULL,
-    'commerce_collector_agreement_path' => NULL,
+    'commerce_collector_credit_terms' => NULL,
+    'commerce_collector_secci' => NULL,
     'commerce_collector_fee' => FALSE,
     'commerce_collector_fee_amount' => 0,
   );
