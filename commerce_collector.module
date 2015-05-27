@@ -115,7 +115,7 @@ function commerce_collector_commerce_payment_method_info() {
 function commerce_collector_commerce_price_component_type_info() {
   return array(
     'collector_fee' => array(
-      'title' => t('Collector fee'),
+      'title' => t('Invoice fee'),
       'weight' => 100,
     ),
   );
@@ -130,7 +130,7 @@ function commerce_collector_commerce_line_item_type_info() {
   return array(
     'collector_fee' => array(
       'type' => 'collector_fee',
-      'name' => t('Collector payment fee'),
+      'name' => t('Invoice fee'),
       'description' => t('Line item for charging an extra fee for Collector payment.'),
       'add_form_submit_value' => t('Add an extra fee'),
       'base' => 'commerce_collector_line_item',
