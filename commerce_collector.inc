@@ -268,7 +268,7 @@ function commerce_collector_fee_line_item($payment_method, $order, $delete = FAL
       $line_item_wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
 
       // Populate the $line_item_wrapper...
-      $line_item_wrapper->line_item_label = t('Collector fee');
+      $line_item_wrapper->line_item_label = t('Invoice fee');
       $line_item_wrapper->quantity = 1;
       $line_item_wrapper->commerce_unit_price->amount = $payment_method['settings']['commerce_collector_login']['commerce_collector_fee_amount'];
       $line_item_wrapper->commerce_unit_price->currency_code = commerce_default_currency();
