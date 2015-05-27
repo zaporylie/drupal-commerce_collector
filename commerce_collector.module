@@ -618,7 +618,7 @@ function commerce_collector_submit_form_submit($payment_method, $pane_form, $pan
       form_set_error('commerce_collector', t('Collector was not able to process payment for provided data. Choose another payment method.'));
     }
     // Log exception.
-    watchdog('commerce_collector', print_r($e, TRUE), array(), WATCHDOG_ERROR);
+    watchdog('commerce_collector', $e->faultcode, array(), WATCHDOG_ERROR);
     // Prevent changing order status to pending.
     return FALSE;
   }
