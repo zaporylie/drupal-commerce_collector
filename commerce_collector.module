@@ -145,7 +145,7 @@ function commerce_collector_commerce_line_item_type_info() {
  *   The line item title.
  */
 function commerce_collector_line_item_title() {
-  return t('Payment fee');
+  return t('Invoice fee');
 }
 
 /**
@@ -572,8 +572,8 @@ function commerce_collector_submit_form_submit($payment_method, $pane_form, $pan
     $invoice['InvoiceRows'] = array();
     foreach ($wrapper->commerce_line_items->getIterator() as $line) {
       $invoice['InvoiceRows'][] = array(
-        'ArticleId' => isset($line->commerce_product) && $line->commerce_product->value() && isset($line->commerce_product->sku) ? $line->commerce_product->sku->value() : $line->getIdentifier(),
-        'Description' => isset($line->commerce_product) && $line->commerce_product->label() ? $line->commerce_product->label() : $line->line_item_label->value(),
+        'ArticleId' => $line->line_item_label->value(),
+        'Description' => commerce_line_item_title($line->value()),
         'Quantity' => $line->quantity->value(),
         'UnitPrice' => $line->commerce_unit_price->amount->value() / 100,
         'VAT' => _commerce_collector_line_item_vat($payment_method, $line->commerce_unit_price->value()),
