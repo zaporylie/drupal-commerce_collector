@@ -512,7 +512,7 @@ function commerce_collector_submit_form($payment_method, $pane_values, $checkout
   );
   $form['confirmation'] = array(
     '#type' => 'checkbox',
-    '#title' => t('I accept <a href="@credit_terms">general terms and conditions for credit agreement</a> and <a href="@secci">standard european consumer credit information</a>.', array('@credit_terms' => variable_get('commerce_collector_credit_terms', '#'), '@secci' => variable_get('commerce_collector_secci', '#'))),
+    '#title' => t('I accept <a href="@credit_terms">general terms and conditions for credit agreement</a> and <a href="@secci">standard european consumer credit information</a>.', array('@credit_terms' => $payment_method['settings']['commerce_collector_login']['commerce_collector_credit_terms'], '@secci' => $payment_method['settings']['commerce_collector_login']['commerce_collector_secci'])),
     '#required' => TRUE,
   );
   return $form;
@@ -799,8 +799,8 @@ function _commerce_collector_defaults(&$settings) {
     'commerce_collector_username' => NULL,
     'commerce_collector_password' => NULL,
     'commerce_collector_store_id' => NULL,
-    'commerce_collector_credit_terms' => NULL,
-    'commerce_collector_secci' => NULL,
+    'commerce_collector_credit_terms' => '#',
+    'commerce_collector_secci' => '#',
     'commerce_collector_fee' => FALSE,
     'commerce_collector_fee_amount' => 0,
   );
