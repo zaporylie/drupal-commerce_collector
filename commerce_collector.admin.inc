@@ -28,8 +28,8 @@ function commerce_collector_admin_get_invoice($order, $transaction) {
     drupal_set_message($e->getMessage(), 'error');
     watchdog('commerce_collector', print_r($e, TRUE), array(), WATCHDOG_ERROR);
   }
-  // @todo: Use entity_uri.
-  drupal_goto('admin/commerce/orders/' . $order->order_id . '/payment/' . $transaction->transaction_id);
+
+  drupal_goto('admin/commerce/orders/' . $order->order_id . '/payment');
 }
 
 /**
@@ -40,8 +40,8 @@ function commerce_collector_admin_activate_invoice($order, $transaction) {
   module_load_include('inc', 'commerce_collector', 'commerce_collector');
 
   commerce_collector_activate_invoice($transaction);
-  // @todo: Use entity_uri.
-  drupal_goto('admin/commerce/orders/' . $order->order_id . '/payment/' . $transaction->transaction_id);
+
+  drupal_goto('admin/commerce/orders/' . $order->order_id . '/payment');
 }
 
 /**
@@ -52,6 +52,6 @@ function commerce_collector_admin_deactivate_invoice($order, $transaction) {
   module_load_include('inc', 'commerce_collector', 'commerce_collector');
 
   commerce_collector_deactivate_invoice($transaction);
-  // @todo: Use entity_uri.
-  drupal_goto('admin/commerce/orders/' . $order->order_id . '/payment/' . $transaction->transaction_id);
+
+  drupal_goto('admin/commerce/orders/' . $order->order_id . '/payment');
 }
