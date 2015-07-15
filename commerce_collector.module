@@ -628,6 +628,12 @@ function commerce_collector_submit_form_submit($payment_method, $pane_form, $pan
     return FALSE;
   }
 
+  if (!in_array($result->InvoiceStatus, array(COMMERCE_COLLECTOR_PAYMENT_STATUS_PENDING, COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED))) {
+    form_set_error('commerce_collector', _commerce_collector_fault_codes_messages('DENIED_TO_PURCHASE'));
+    // Prevent changing order status to pending.
+    return FALSE;
+  }
+
   $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
   $charge = $order_wrapper->commerce_order_total->value();
 
