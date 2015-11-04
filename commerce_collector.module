@@ -581,13 +581,21 @@ function commerce_collector_submit_form_submit($payment_method, $pane_form, $pan
 
     $invoice['InvoiceRows'] = array();
     foreach ($wrapper->commerce_line_items->getIterator() as $line) {
-      $invoice['InvoiceRows'][] = array(
+
+      // Prepare line.
+      $row = array(
         'ArticleId' => $line->line_item_label->value(),
         'Description' => commerce_line_item_title($line->value()),
         'Quantity' => $line->quantity->value(),
         'UnitPrice' => $line->commerce_unit_price->amount->value() / 100,
         'VAT' => _commerce_collector_line_item_vat($payment_method, $line->commerce_unit_price->value()),
       );
+
+      // Let other modules change invoice row on demand.
+      drupal_alter('commerce_collector_invoice_row', $row);
+
+      // Add row to invoice.
+      $invoice['InvoiceRows'][] = $row;
     }
 
     if (!empty($pane_values['partial_payment_option']) && in_array($pane_values['partial_payment_option'], array('IF_3_001', 'IF_6_001', 'IF_12_001'))) {
