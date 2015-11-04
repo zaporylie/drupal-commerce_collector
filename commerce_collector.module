@@ -407,6 +407,8 @@ function commerce_collector_submit_form($payment_method, $pane_values, $checkout
 
   _commerce_collector_defaults($payment_method['settings']);
 
+  // Load locale.
+  include_once DRUPAL_ROOT . '/includes/locale.inc';
   $options = array_intersect_key(country_get_list(), $payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_country']);
 
   if ($partial_payment_options = array_intersect_key(_commerce_collector_get_rates(), $payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_partial_payments'])) {
@@ -837,6 +839,8 @@ function _commerce_collector_defaults(&$settings) {
  * List of countries where Collector is available.
  */
 function _commerce_collector_get_countries() {
+  // Load locale.
+  include_once DRUPAL_ROOT . '/includes/locale.inc';
   $available = array('NO', 'SE', 'DK', 'FI', 'DE', 'AT', 'NL');
   return array_intersect_key(country_get_list(), array_flip($available));
 }
