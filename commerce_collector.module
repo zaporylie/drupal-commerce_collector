@@ -25,6 +25,14 @@ define('COMMERCE_COLLECTOR_INVOICE_DELIVERY_EMAIL', 2);
 
 define('COMMERCE_COLLECTOR_INVOICE_ACTIVATION_MANUAL', 0);
 
+
+/**
+ * Implements hook_enable().
+ */
+function commerce_collector_enable() {
+  commerce_product_line_item_configuration(array('type' => 'collector_fee'));
+}
+
 /**
  * Implements hook_menu().
  */

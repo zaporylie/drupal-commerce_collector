@@ -33,13 +33,6 @@ function commerce_collector_requirements($phase) {
 }
 
 /**
- * Implements hook_enable().
- */
-function commerce_collector_enable() {
-  commerce_product_line_item_configuration(array('type' => 'collector_fee'));
-}
-
-/**
  * Implements of hook_uninstall().
  */
 function commerce_collector_uninstall() {
