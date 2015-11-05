@@ -109,9 +109,22 @@ function commerce_collector_commerce_payment_method_info() {
   $payment_methods = array();
 
   $payment_methods['commerce_collector'] = array(
-    'title' => t('Collector'),
+    'title' => t('Collector Invoice'),
     'description' => t('Collector external payment gateway.'),
+
+    'short_title' => t('Collector'),
+
+    // Start as enabled.
     'active' => TRUE,
+
+    // Disable payments in order’s Payment tab.
+    'terminal' => FALSE,
+
+    // Sends user offsite.
+    'offsite' => TRUE,
+
+    // Automaticly redirect user offsite.
+    'offsite_autoredirect' => TRUE,
   );
 
   return $payment_methods;
@@ -303,6 +316,25 @@ function commerce_collector_settings_form($settings = array()) {
     '#options' => _commerce_collector_get_countries(),
     '#description' => t('This list has been made based on countries supported by Collector. Choose countries which are supported by your shop.'),
   );
+  $form['commerce_collector_invoice']['commerce_collector_delivery_address_profile'] = array(
+    '#type' => 'select',
+    '#title' => t('Delivery address profile'),
+    '#required' => TRUE,
+    '#multiple' => FALSE,
+    '#default_value' => $settings['commerce_collector_invoice']['commerce_collector_delivery_address_profile'],
+    '#options' => _commerce_collector_get_customer_profile_instances(),
+    '#description' => t('Which customer profile should be used as a delivery address.'),
+  );
+  $form['commerce_collector_invoice']['commerce_collector_billing_address_profile'] = array(
+    '#type' => 'select',
+    '#title' => t('Billing address profile'),
+    '#required' => FALSE,
+    '#multiple' => FALSE,
+    '#default_value' => $settings['commerce_collector_invoice']['commerce_collector_billing_address_profile'],
+    '#options' => _commerce_collector_get_customer_profile_instances(),
+    '#description' => t('Which customer profile should be used as a billing address. If none - gets delivery address.'),
+  );
+
   $form['commerce_collector_invoice']['commerce_collector_invoice_activation'] = array(
     '#type' => 'select',
     '#title' => t('Activation'),
@@ -407,121 +439,26 @@ function commerce_collector_submit_form($payment_method, $pane_values, $checkout
 
   _commerce_collector_defaults($payment_method['settings']);
 
-  // Load locale.
-  include_once DRUPAL_ROOT . '/includes/locale.inc';
-  $options = array_intersect_key(country_get_list(), $payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_country']);
-
   if ($partial_payment_options = array_intersect_key(_commerce_collector_get_rates(), $payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_partial_payments'])) {
     $form['partial_payment_option'] = array(
       '#type' => 'radios',
       '#required' => TRUE,
+      '#default_value' => isset($order->data['commerce_collector']['pane_values']['partial_payment_option']) ? $order->data['commerce_collector']['pane_values']['partial_payment_option'] : NULL,
       '#title' => t('Choose partial payment option'),
       '#options' => $partial_payment_options,
     );
   }
 
-  // Build wrapper over $order.
-  $wrapper = entity_metadata_wrapper('commerce_order', $order);
-  $is_billing_address = FALSE;
-  if (isset($wrapper->commerce_customer_billing) && isset($wrapper->commerce_customer_billing->commerce_customer_address)) {
-    $is_billing_address = TRUE;
-  }
-  if ($is_billing_address && isset($wrapper->commerce_customer_billing->commerce_customer_address->country)) {
-    $country_code = $wrapper->commerce_customer_billing->commerce_customer_address->country->value();
-  }
-  else {
-    $country_code = NULL;
-  }
-
-  $form['country'] = array(
-    '#type' => 'select',
-    '#title' => t('Country'),
-    '#required' => TRUE,
-    '#default_value' => count($options) == 1 ? key($options) : $country_code,
-    '#disabled' => count($options) == 1 ? TRUE : FALSE,
-    '#options' => $options,
-  );
   $form['personal_number'] = array(
     '#type' => 'textfield',
     '#title' => t('Personal number'),
+    '#default_value' => isset($order->data['commerce_collector']['pane_values']['personal_number']) ? $order->data['commerce_collector']['pane_values']['personal_number'] : NULL,
     '#required' => TRUE,
   );
 
-  // These field are available for users with specific permission.
-  // Other users will get it pre-rendered based on billing profile and hidden.
-  $form['address'] = array(
-    '#access' => user_access('commerce collector modify invoice data'),
-    '#tree' => TRUE,
-  );
-  $form['address']['Firstname'] = array(
-    '#type' => 'textfield',
-    '#title' => t('First name'),
-    '#required' => TRUE,
-    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->first_name->value() : '',
-  );
-  $form['address']['Lastname'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Last name'),
-    '#required' => TRUE,
-    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->last_name->value() : '',
-  );
-  $form['address']['Address1'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Address 1'),
-    '#required' => TRUE,
-    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->thoroughfare->value() : '',
-  );
-  $form['address']['Address2'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Address 2'),
-    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->premise->value() : '',
-  );
-  $form['address']['COAddress'] = array(
-    '#type' => 'textfield',
-    '#title' => t('C/o address'),
-    '#default_value' => '',
-  );
-  $form['address']['City'] = array(
-    '#type' => 'textfield',
-    '#title' => t('City'),
-    '#required' => TRUE,
-    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->locality->value() : '',
-  );
-  $form['address']['CountryCode'] = array(
-    '#type' => 'select',
-    '#title' => t('Country Code'),
-    '#required' => TRUE,
-    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->country->value() : '',
-    '#options' => _commerce_collector_get_countries(),
-  );
-  $form['address']['PostalCode'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Postal Code'),
-    '#required' => TRUE,
-    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->postal_code->value() : '',
-  );
-  $form['address']['CellPhoneNumber'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Cell phone'),
-    '#default_value' => '',
-  );
-  $form['address']['CompanyName'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Company name'),
-    '#default_value' => '',
-  );
-  $form['address']['Email'] = array(
-    '#type' => 'textfield',
-    '#title' => t('E-mail address'),
-    '#default_value' => '',
-  );
-  $form['address']['PhoneNumber'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Phone number'),
-    '#default_value' => '',
-  );
   $form['confirmation'] = array(
     '#type' => 'checkbox',
+    '#default_value' => isset($order->data['commerce_collector']['pane_values']['confirmation']) ? $order->data['commerce_collector']['pane_values']['confirmation'] : FALSE,
     '#title' => t('I accept <a href="@credit_terms">general terms and conditions for credit agreement</a> and <a href="@secci">standard european consumer credit information</a>.', array('@credit_terms' => $payment_method['settings']['commerce_collector_login']['commerce_collector_credit_terms'], '@secci' => $payment_method['settings']['commerce_collector_login']['commerce_collector_secci'])),
     '#required' => TRUE,
   );
@@ -534,139 +471,337 @@ function commerce_collector_submit_form($payment_method, $pane_values, $checkout
 function commerce_collector_submit_form_submit($payment_method, $pane_form, $pane_values, $order, $charge) {
 
   module_load_include('inc', 'commerce_collector', 'commerce_collector');
-
-  // Loads default settings.
-  _commerce_collector_defaults($payment_method['settings']);
-
   // Adds nee line item with payment fee (only one no matter how many
   // transactions has been registered).
   commerce_collector_fee_line_item($payment_method, $order);
 
-  try {
-    // Build wrapper over $order.
-    $wrapper = entity_metadata_wrapper('commerce_order', $order);
+//  try {
+//    // Send request.
+//    $result = _commerce_collector_request($invoice, $payment_method, 'AddInvoice');
+//  }
+//  catch (Exception $e) {
+//    if (isset($e->faultcode) && $message = _commerce_collector_fault_codes_messages($e->faultcode)) {
+//      // If error should be presented to customer.
+//      form_set_error('commerce_collector', $message);
+//    }
+//    else {
+//      // Otherwise.
+//      form_set_error('commerce_collector', t('Collector was not able to process payment for provided data. Choose another payment method.'));
+//    }
+//    // Log exception.
+//    $uri = entity_uri('commerce_order', $order);
+//    watchdog('commerce_collector', 'Collector returned error %code for order %order_id. Payload: @payload', array('%code' => $e->faultcode, '%order_id' => $order->order_id, '@payload' => print_r($invoice, TRUE)), WATCHDOG_ERROR, l('view order', $uri['path'], array('absolute' => TRUE)));
+//    // Prevent changing order status to pending.
+//    return FALSE;
+//  }
+//
+//  if (!in_array($result->InvoiceStatus, array(COMMERCE_COLLECTOR_PAYMENT_STATUS_PENDING, COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED))) {
+//    form_set_error('commerce_collector', _commerce_collector_fault_codes_messages('DENIED_TO_PURCHASE'));
+//    // Prevent changing order status to pending.
+//    return FALSE;
+//  }
+//
+//  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+//  $charge = $order_wrapper->commerce_order_total->value();
+//
+//  // Create and save transaction.
+//  $transaction = commerce_payment_transaction_new('commerce_collector', $order->order_id);
+//  $transaction->instance_id = $payment_method['instance_id'];
+//  $transaction->amount = $charge['amount'];
+//  $transaction->currency_code = $charge['currency_code'];
+//  $transaction->data['pane_values'] = $pane_values;
+//  $transaction->data['invoice'] = (array) $result;
+//  $transaction->remote_id = $result->InvoiceNo;
+//  $transaction->remote_status = $result->InvoiceStatus;
+//
+//  if (!commerce_collector_save_transaction($transaction)) {
+//    drupal_set_message(t('Unable to process transaction right now, please try again.', 'error'));
+//    return FALSE;
+//  }
+//
+//  // Save transaction specific date in order.
+  $order->data['commerce_collector']['pane_values'] = $pane_values;
+//  $order->data['commerce_collector']['transaction'] = $transaction;
+}
 
-    $invoice = array(
-      'ActivationOption' => $payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_activation'],
-      'CountryCode' => $pane_values['country'],
-      'Currency' => $wrapper->commerce_order_total->currency_code->value(),
-    );
+function commerce_collector_cancel_transactions($order) {
+  // Find all invoices which can be activated.
+  $query = db_select('commerce_payment_transaction', 't');
+  $query->condition('t.order_id', $order->order_id);
+  $query->condition('t.status', COMMERCE_PAYMENT_STATUS_PENDING);
+  $query->condition(db_or()->isNull('t.remote_id')->condition('t.remote_id', ''));
+  $query->fields('t');
+  $result = $query->execute()->fetchAllKeyed();
 
-    // Add manually one by one to keep it in right order (sic!).
-    $invoice['DeliveryAddress'] = array();
-    $invoice['DeliveryAddress']['Address1'] = $pane_values['address']['Address1'];
-    $invoice['DeliveryAddress']['Address2'] = $pane_values['address']['Address2'];
-    $invoice['DeliveryAddress']['COAddress'] = $pane_values['address']['COAddress'];
-    $invoice['DeliveryAddress']['City'] = $pane_values['address']['City'];
-    $invoice['DeliveryAddress']['CountryCode'] = $pane_values['address']['CountryCode'];
-    $invoice['DeliveryAddress']['PostalCode'] = $pane_values['address']['PostalCode'];
-    $invoice['DeliveryAddress']['CellPhoneNumber'] = $pane_values['address']['CellPhoneNumber'];
-    $invoice['DeliveryAddress']['CompanyName'] = $pane_values['address']['CompanyName'];
-    $invoice['DeliveryAddress']['Email'] = $pane_values['address']['Email'];
-    $invoice['DeliveryAddress']['Firstname'] = $pane_values['address']['Firstname'];
-    $invoice['DeliveryAddress']['Lastname'] = $pane_values['address']['Lastname'];
-    $invoice['DeliveryAddress']['PhoneNumber'] = $pane_values['address']['PhoneNumber'];
-
-    // Prevent PHP of pointing to the same memory address (sic!!).
-    $invoice['InvoiceAddress'] = array() + $invoice['DeliveryAddress'];
-
-    // Partial payments support.
-    if (isset($pane_values['partial_payment_option']) && !empty($pane_values['partial_payment_option'])) {
-      $invoice['ProductCode'] = $pane_values['partial_payment_option'];
-      $invoice['InvoiceDeliveryMethod'] = 1;
-    }
-    else {
-      $invoice['InvoiceDeliveryMethod'] = $payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_delivery'];
-    }
-
-    $invoice['InvoiceRows'] = array();
-    foreach ($wrapper->commerce_line_items->getIterator() as $line) {
-      $invoice['InvoiceRows'][] = array(
-        'ArticleId' => $line->line_item_label->value(),
-        'Description' => commerce_line_item_title($line->value()),
-        'Quantity' => $line->quantity->value(),
-        'UnitPrice' => $line->commerce_unit_price->amount->value() / 100,
-        'VAT' => _commerce_collector_line_item_vat($payment_method, $line->commerce_unit_price->value()),
-      );
-    }
-
-    if (!empty($pane_values['partial_payment_option']) && in_array($pane_values['partial_payment_option'], array('IF_3_001', 'IF_6_001', 'IF_12_001'))) {
-      // We have to overwrite default invoice type if user want to use interest
-      // free invoice.
-      $invoice['InvoiceType'] = COMMERCE_COLLECTOR_INVOICE_TYPE_INTEREST_FREE;
-    }
-    elseif(!empty($pane_values['partial_payment_option']) && in_array($pane_values['partial_payment_option'], array('AN_24_001', 'AN_36_001'))) {
-      // We have to overwrite default invoice type if user wants to use partial
-      // payments with non-free interest rate.
-      $invoice['InvoiceType'] = COMMERCE_COLLECTOR_INVOICE_TYPE_ANNUITY;
-    }
-    else {
-      $invoice['InvoiceType'] = $payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_type'];
-    }
-
-    $invoice['OrderNo'] = $order->order_id;
-    $invoice['OrderDate'] = format_date($order->created, 'custom', 'Y-m-d\TH:i:sP');
-    $invoice['RegNo'] = $pane_values['personal_number'];
-
-    if ($store_id = $payment_method['settings']['commerce_collector_login']['commerce_collector_store_id']) {
-      $invoice['StoreId'] = $store_id;
-    }
+  $transactions = entity_load('commerce_payment_transaction', array_keys($result));
+  foreach ($transactions as $transaction) {
+    $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
+    $transaction->message = t('Payment transaction has been discarded.');
+    commerce_payment_transaction_save($transaction);
   }
-  catch (Exception $e) {
-    // Set form error if it is not possible to prepare correct request.
-    form_set_error('commerce_collector', t('Collector was not able to process payment for provided data. Choose another payment method.'));
-    watchdog_exception('commerce_collector', $e);
-    return FALSE;
-  }
+}
 
-  try {
-    // Send request.
-    $result = _commerce_collector_request($invoice, $payment_method, 'AddInvoice');
-  }
-  catch (Exception $e) {
-    if (isset($e->faultcode) && $message = _commerce_collector_fault_codes_messages($e->faultcode)) {
-      // If error should be presented to customer.
-      form_set_error('commerce_collector', $message);
-    }
-    else {
-      // Otherwise.
-      form_set_error('commerce_collector', t('Collector was not able to process payment for provided data. Choose another payment method.'));
-    }
-    // Log exception.
-    $uri = entity_uri('commerce_order', $order);
-    watchdog('commerce_collector', 'Collector returned error %code for order %order_id. Payload: @payload', array('%code' => $e->faultcode, '%order_id' => $order->order_id, '@payload' => print_r($invoice, TRUE)), WATCHDOG_ERROR, l('view order', $uri['path'], array('absolute' => TRUE)));
-    // Prevent changing order status to pending.
-    return FALSE;
-  }
+/**
+ * Payment method callback: redirect form.
+ */
+function commerce_collector_redirect_form($form, &$form_state, $order, $payment_method) {
 
-  if (!in_array($result->InvoiceStatus, array(COMMERCE_COLLECTOR_PAYMENT_STATUS_PENDING, COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED))) {
-    form_set_error('commerce_collector', _commerce_collector_fault_codes_messages('DENIED_TO_PURCHASE'));
-    // Prevent changing order status to pending.
-    return FALSE;
-  }
+  // Reset all unprocessed transactions.
+  commerce_collector_cancel_transactions($order);
 
-  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
-  $charge = $order_wrapper->commerce_order_total->value();
+  // Use order balance when creating new transaction.
+  $charge = commerce_payment_order_balance($order);
 
   // Create and save transaction.
   $transaction = commerce_payment_transaction_new('commerce_collector', $order->order_id);
   $transaction->instance_id = $payment_method['instance_id'];
   $transaction->amount = $charge['amount'];
   $transaction->currency_code = $charge['currency_code'];
-  $transaction->data['pane_values'] = $pane_values;
-  $transaction->data['invoice'] = (array) $result;
-  $transaction->remote_id = $result->InvoiceNo;
-  $transaction->remote_status = $result->InvoiceStatus;
+  $transaction->status = COMMERCE_PAYMENT_STATUS_PENDING;
 
-  if (!commerce_collector_save_transaction($transaction)) {
-    drupal_set_message(t('Unable to process transaction right now, please try again.', 'error'));
+  if (commerce_payment_transaction_save($transaction)) {
+    $form['transaction'] = array('#type' => 'hidden', '#value' => $transaction->transaction_id);
+    $form['#action'] = url('checkout/' . $order->order_id . '/payment/return/' . $order->data['payment_redirect_key']);
+  }
+  else {
+    $form['#action'] = url('checkout/' . $order->order_id . '/payment/back/' . $order->data['payment_redirect_key']);
+  }
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Proceed to Collector'),
+  );
+
+  return $form;
+}
+
+/**
+ * Payment method callback: redirect form return validation.
+ *
+ * We trust Nets to be the only ones that know about this.
+ */
+function commerce_collector_redirect_form_validate($order, $payment_method) {
+  dpm($order);
+  dpm($payment_method);
+  dpm($_POST);
+  dpm($_GET);
+
+  try {
+    $transaction = commerce_payment_transaction_load($_POST['transaction']);
+    if (!is_object($transaction)) {
+      throw new Exception('Missing transaction');
+    }
+  }
+  catch (Exception $e) {
+    commerce_payment_redirect_pane_previous_page($order);
+    drupal_set_message(t('Missing transaction'), 'error');
     return FALSE;
   }
 
-  // Save transaction specific date in order.
-  $order->data['commerce_collector']['pane_values'] = $pane_values;
-  $order->data['commerce_collector']['transaction'] = $transaction;
+  try {
+
+    module_load_include('inc', 'commerce_collector', 'commerce_collector');
+
+    // Load settings.
+    $settings = $payment_method['settings'];
+    _commerce_collector_defaults($settings);
+
+    // Retrieve pane values from order.
+    if (!isset($order->data['commerce_collector']['pane_values'])) {
+      throw new Exception('Configuration error');
+    }
+    $pane_values = $order->data['commerce_collector']['pane_values'];
+
+    $delivery_address_profile = $settings['commerce_collector_invoice']['commerce_collector_delivery_address_profile'];
+    $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+
+    $payload = array(
+      'ActivationOption' => $payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_activation'],
+      'CountryCode' => $order_wrapper->{$delivery_address_profile}->commerce_customer_address->country->value(),
+      'Currency' => $transaction->currency_code,
+    );
+
+    $payload['DeliveryAddress'] = array();
+    $payload['DeliveryAddress']['Address1'] = $order_wrapper->{$delivery_address_profile}->commerce_customer_address->thoroughfare->value();
+    $payload['DeliveryAddress']['Address2'] = $order_wrapper->{$delivery_address_profile}->commerce_customer_address->premise->value();
+    $payload['DeliveryAddress']['COAddress'] = $order_wrapper->{$delivery_address_profile}->commerce_customer_address->name_line->value();
+    $payload['DeliveryAddress']['City'] = $order_wrapper->{$delivery_address_profile}->commerce_customer_address->locality->value();
+    $payload['DeliveryAddress']['CountryCode'] = $order_wrapper->{$delivery_address_profile}->commerce_customer_address->country->value();
+    $payload['DeliveryAddress']['PostalCode'] = $order_wrapper->{$delivery_address_profile}->commerce_customer_address->postal_code->value();
+    $payload['DeliveryAddress']['CellPhoneNumber'] = '';
+    $payload['DeliveryAddress']['CompanyName'] = $order_wrapper->{$delivery_address_profile}->commerce_customer_address->organisation_name->value();
+    $payload['DeliveryAddress']['Email'] = $order->mail;
+    $payload['DeliveryAddress']['Firstname'] = $order_wrapper->{$delivery_address_profile}->commerce_customer_address->first_name->value();
+    $payload['DeliveryAddress']['Lastname'] = $order_wrapper->{$delivery_address_profile}->commerce_customer_address->last_name->value();
+    $payload['DeliveryAddress']['PhoneNumber'] = '';
+    drupal_alter('commerce_collector_delivery_address', $payload['DeliveryAddress'], $payload, $order, $payment_method);
+
+    $billing_address_profile = $settings['commerce_collector_invoice']['commerce_collector_billing_address_profile'];
+    if (!isset($billing_address_profile)) {
+      $billing_address_profile = $delivery_address_profile;
+    }
+    $payload['InvoiceAddress'] = array();
+    $payload['InvoiceAddress']['Address1'] = $order_wrapper->{$billing_address_profile}->commerce_customer_address->thoroughfare->value();
+    $payload['InvoiceAddress']['Address2'] = $order_wrapper->{$billing_address_profile}->commerce_customer_address->premise->value();
+    $payload['InvoiceAddress']['COAddress'] = $order_wrapper->{$billing_address_profile}->commerce_customer_address->name_line->value();
+    $payload['InvoiceAddress']['City'] = $order_wrapper->{$billing_address_profile}->commerce_customer_address->locality->value();
+    $payload['InvoiceAddress']['CountryCode'] = $order_wrapper->{$billing_address_profile}->commerce_customer_address->country->value();
+    $payload['InvoiceAddress']['PostalCode'] = $order_wrapper->{$billing_address_profile}->commerce_customer_address->postal_code->value();
+    $payload['InvoiceAddress']['CellPhoneNumber'] = '';
+    $payload['InvoiceAddress']['CompanyName'] = $order_wrapper->{$billing_address_profile}->commerce_customer_address->organisation_name->value();
+    $payload['InvoiceAddress']['Email'] = $order->mail;
+    $payload['InvoiceAddress']['Firstname'] = $order_wrapper->{$billing_address_profile}->commerce_customer_address->first_name->value();
+    $payload['InvoiceAddress']['Lastname'] = $order_wrapper->{$billing_address_profile}->commerce_customer_address->last_name->value();
+    $payload['InvoiceAddress']['PhoneNumber'] = '';
+    drupal_alter('commerce_collector_invoice_address', $payload['InvoiceAddress'], $payload, $order, $payment_method);
+
+    // Partial payments support.
+    if (!empty($pane_values['partial_payment_option'])) {
+      $payload['ProductCode'] = $pane_values['partial_payment_option'];
+      $payload['InvoiceDeliveryMethod'] = COMMERCE_COLLECTOR_INVOICE_DELIVERY_POST;
+    }
+    else {
+      $payload['InvoiceDeliveryMethod'] = $settings['commerce_collector_invoice']['commerce_collector_invoice_delivery'];
+    }
+
+    // Add invoice rows.
+    $invoice['InvoiceRows'] = array();
+    foreach ($order_wrapper->commerce_line_items->getIterator() as $line) {
+      $row = array(
+        'ArticleId' => $line->line_item_label->value(),
+        'Description' => commerce_line_item_title($line->value()),
+        'Quantity' => $line->quantity->value(),
+        'UnitPrice' => $line->commerce_unit_price->amount_decimal->value(),
+        'VAT' => _commerce_collector_line_item_vat($payment_method, $line->commerce_unit_price->value()),
+      );
+      drupal_alter('commerce_collector_invoice_row', $payload['InvoiceAddress'], $payload, $order, $payment_method);
+      $payload['InvoiceRows'][] = $row;
+    }
+
+    // Invoice type.
+    $payload['InvoiceType'] = $settings['commerce_collector_invoice']['commerce_collector_invoice_type'];
+    if (!empty($pane_values['partial_payment_option']) && in_array($pane_values['partial_payment_option'], array('IF_3_001', 'IF_6_001', 'IF_12_001'))) {
+      // We have to overwrite default invoice type if user want to use interest
+      // free invoice.
+      $payload['InvoiceType'] = COMMERCE_COLLECTOR_INVOICE_TYPE_INTEREST_FREE;
+    }
+    elseif (!empty($pane_values['partial_payment_option']) && in_array($pane_values['partial_payment_option'], array('AN_24_001', 'AN_36_001'))) {
+      // We have to overwrite default invoice type if user wants to use partial
+      // payments with non-free interest rate.
+      $payload['InvoiceType'] = COMMERCE_COLLECTOR_INVOICE_TYPE_ANNUITY;
+    }
+
+    // Set order number.
+    $payload['OrderNo'] = $order->order_id;
+
+    // Set order date.
+    $payload['OrderDate'] = format_date($order->created, 'custom', 'Y-m-d\TH:i:sP');
+
+    // Set personal number.
+    $payload['RegNo'] = $pane_values['personal_number'];
+
+    // Set store id.
+    if ($store_id = $settings['commerce_collector_login']['commerce_collector_store_id']) {
+      $payload['StoreId'] = $store_id;
+    }
+
+    // Save payload in transaction.
+    $transaction->payload = $payload;
+
+    // Send request.
+    try {
+      // Send request.
+      $result = _commerce_collector_request($payload, $payment_method, 'AddInvoice');
+    }
+    catch (Exception $e) {
+      if (isset($e->faultcode) && $message = _commerce_collector_fault_codes_messages($e->faultcode)) {
+        // If error should be presented to customer.
+      }
+      else {
+        // Otherwise.
+        $message = t('Collector was not able to process payment for provided data. Choose another payment method.');
+      }
+      // Set message to end user.
+      drupal_set_message($message, 'error');
+
+      // Log original exception.
+      watchdog_exception('commerce_collector', $e);
+
+      // Throw good-looking exception ;).
+      throw new Exception($message, $e->getCode());
+    }
+
+
+
+    // Keep transaction status.
+    // @todo Set correct local status according to remote status.
+    commerce_payment_transaction_save($transaction);
+
+    throw new Exception('OK');
+  }
+  catch (Exception $e) {
+    $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
+    $transaction->message = $e->getMessage();
+    commerce_payment_transaction_save($transaction);
+
+    commerce_payment_redirect_pane_previous_page($order);
+    drupal_set_message(t('Payment could not be processed. %message', array('%message' => $e->getMessage())), 'error');
+    watchdog_exception('commerce_collector', $e);
+    return FALSE;
+  }
+//  $remote_id = isset($_GET['transactionId']) ? $_GET['transactionId'] : '';
+//  $response_code = isset($_GET['responseCode']) ? $_GET['responseCode'] : '';
+//
+//  $message_variables = array(
+//    '%oid' => $order->order_id,
+//    '%tid' => $remote_id,
+//    '%rc' => $response_code
+//  );
+//
+//  if (empty($remote_id) || empty($response_code)) {
+//    watchdog('commerce_nets', 'Return from Nets has wrong values for order: %oid, transactionId: %tid and responseCode: %rc.', $message_variables, WATCHDOG_ERROR);
+//    return FALSE;
+//  }
+//
+//  $transaction = commerce_nets_get_transaction_by_remote_id($remote_id);
+//
+//  if (!$transaction) {
+//    watchdog('commerce_nets', 'Transaction can not be loaded for order: %oid from $remote_id: %tid.', $message_variables, WATCHDOG_ERROR);
+//    return FALSE;
+//  }
+//
+//  $nets_transaction = commerce_nets_query_transaction($payment_method, $remote_id);
+//
+//  if ($response_code !== 'OK') {
+//    $message_variables['%reason'] = '';
+//    if (isset($nets_transaction->ErrorLog)
+//      && isset($nets_transaction->ErrorLog->PaymentError)
+//      && isset($nets_transaction->ErrorLog->PaymentError->ResponseText)
+//    ) {
+//
+//      $message_variables['%reason'] = $nets_transaction->ErrorLog->PaymentError->ResponseText;
+//
+//      drupal_set_message(t('Status from Nets') . ' : ' . t($message_variables['%reason']), 'error');
+//    }
+//
+//    watchdog('commerce_nets', 'There was a problem with payment for order %oid, reason ":reason"', $message_variables, WATCHDOG_INFO);
+//
+//    // Update transaction to indicate current status.
+//    $transaction->remote_status = $response_code;
+//    $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
+//    commerce_payment_transaction_save($transaction);
+//
+//    return FALSE;
+//  }
+//
+//  // store pan_hash if recurring payment was set by user
+//  if (isset($nets_transaction->CardInformation->PanHash) && !empty($nets_transaction->CardInformation->PanHash)) {
+//    commerce_nets_recurring_save_payment_hash($order->uid, $nets_transaction->CardInformation);
+//  }
+//
+//  return commerce_nets_process_transaction($order, $payment_method, $transaction, $payment_method['settings']['payment_action']);
 }
+
 
 /**
  * Implements hook_form_FORM_ID_alter().
@@ -823,6 +958,8 @@ function _commerce_collector_defaults(&$settings) {
   );
   $settings['commerce_collector_invoice'] += array(
     'commerce_collector_invoice_country' => array(),
+    'commerce_collector_delivery_address_profile' => NULL,
+    'commerce_collector_billing_address_profile' => NULL,
     'commerce_collector_invoice_activation' => COMMERCE_COLLECTOR_INVOICE_ACTIVATION_MANUAL,
     'commerce_collector_invoice_activation_state' => array('completed'),
     'commerce_collector_invoice_deactivation_state' => array('canceled'),
@@ -844,6 +981,23 @@ function _commerce_collector_get_countries() {
   include_once DRUPAL_ROOT . '/includes/locale.inc';
   $available = array('NO', 'SE', 'DK', 'FI', 'DE', 'AT', 'NL');
   return array_intersect_key(country_get_list(), array_flip($available));
+}
+
+function _commerce_collector_get_customer_profile_instances() {
+  $instances = field_info_instances('commerce_order');
+  $array = array(NULL => t('- Choose -'));
+
+  foreach ($instances as $type => $instance) {
+    foreach ($instance as $field_name => $field_instance) {
+      $field = field_info_field($field_name);
+      if ($field['type'] !== 'commerce_customer_profile_reference') {
+        continue;
+      }
+      $array[$type][$field_name] = $field_instance['label'];
+    }
+  }
+  dpm($instances);
+  return $array;
 }
 
 /**
