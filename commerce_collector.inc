@@ -13,6 +13,8 @@
  *
  * @return bool
  *   TRUE or FALSE.
+ *
+ * @todo Move to rules file.
  */
 function _commerce_collector_commerce_order_activate($order) {
   // Find all invoices which can be activated.
@@ -53,6 +55,8 @@ function _commerce_collector_commerce_order_activate($order) {
  *
  * @return bool
  *   TRUE or FALSE.
+ *
+ * @todo Move to rules file.
  */
 function _commerce_collector_commerce_order_deactivate($order) {
   // Find all invoices which can be activated.
@@ -87,6 +91,8 @@ function _commerce_collector_commerce_order_deactivate($order) {
 
 /**
  * Activate invoice for payment.
+ *
+ * @todo Move to rules file?
  */
 function commerce_collector_activate_invoice($transaction) {
 
@@ -100,18 +106,20 @@ function commerce_collector_activate_invoice($transaction) {
 
   // Remote status was changed but local was outdated.
   if ($transaction->remote_status == COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED) {
-    commerce_collector_save_transaction($transaction);
+    commerce_collector_set_status($transaction);
+    commerce_payment_transaction_save($transaction);
     return TRUE;
   }
   try {
     $data = array(
-      'CountryCode' => $transaction->data['pane_values']['country'],
+      'CountryCode' => $transaction->payload['CountryCode'],
       'InvoiceNo' => $transaction->remote_id,
     );
     $result = _commerce_collector_request($data, $payment_method, 'ActivateInvoice');
     $transaction->remote_status = COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED;
-    $transaction->data['invoice'] = (array) $result;
-    commerce_collector_save_transaction($transaction);
+    $transaction->data['response'] = (array) $result;
+    commerce_collector_set_status($transaction);
+    commerce_payment_transaction_save($transaction);
     drupal_set_message(t('Invoice @number has been activated.', array('@number' => $transaction->remote_id)));
     return TRUE;
   }
@@ -130,6 +138,8 @@ function commerce_collector_activate_invoice($transaction) {
 
 /**
  * Deactivate invoice for payment.
+ *
+ * @todo Move to rules file?
  */
 function commerce_collector_deactivate_invoice($transaction) {
 
@@ -143,20 +153,22 @@ function commerce_collector_deactivate_invoice($transaction) {
 
   // Remote status was changed but local was outdated.
   if ($transaction->remote_status == COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED) {
-    commerce_collector_save_transaction($transaction);
+    commerce_collector_set_status($transaction);
+    commerce_payment_transaction_save($transaction);
     return TRUE;
   }
   try {
     $data = array(
-      'CountryCode' => $transaction->data['pane_values']['country'],
+      'CountryCode' => $transaction->payload['CountryCode'],
       'InvoiceNo' => $transaction->remote_id,
     );
     // Try to deactivate invoice.
     $result = _commerce_collector_request($data, $payment_method, 'CancelInvoice');
     // If succeed - change transaction status.
     $transaction->remote_status = COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED;
-    $transaction->data['invoice'] = (array) $result;
-    commerce_collector_save_transaction($transaction);
+    $transaction->data['response'] = (array) $result;
+    commerce_collector_set_status($transaction);
+    commerce_payment_transaction_save($transaction);
     drupal_set_message(t('Invoice @number has been rejected.', array('@number' => $transaction->remote_id)));
     return TRUE;
   }
@@ -176,6 +188,8 @@ function commerce_collector_deactivate_invoice($transaction) {
 
 /**
  * Credit an invoice.
+ *
+ * @todo Move to rules file?
  */
 function commerce_collector_credit_invoice($transaction) {
 
@@ -183,14 +197,15 @@ function commerce_collector_credit_invoice($transaction) {
 
   try {
     $data = array(
-      'CountryCode' => $transaction->data['pane_values']['country'],
+      'CountryCode' => $transaction->payload['CountryCode'],
       'InvoiceNo' => $transaction->remote_id,
       'CreditDate' => format_date(REQUEST_TIME, 'custom', 'Y-m-d\TH:i:sP'),
     );
     $result = _commerce_collector_request($data, $payment_method, 'CreditInvoice');
     $transaction->remote_status = COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED;
     $transaction->data['invoice'] = (array) $result;
-    commerce_collector_save_transaction($transaction);
+    commerce_collector_set_status($transaction);
+    commerce_payment_transaction_save($transaction);
     drupal_set_message(t('Invoice @number has been credited.', array('@number' => $transaction->remote_id)));
     return TRUE;
   }
@@ -292,23 +307,6 @@ function commerce_collector_fee_line_item($payment_method, $order, $delete = FAL
     // @todo Remove line item here.
   }
   return FALSE;
-}
-
-/**
- * Creates an example payment transaction for the specified charge amount.
- *
- * @param object $transaction
- *   New or existing transaction.
- *
- * @return bool
- *   TRUE if saved, FALSE if not.
- *
- * @deprecated
- *   Use commerce_collector_set_status than commerce_payment_transaction_save.
- */
-function commerce_collector_save_transaction(&$transaction) {
-  commerce_collector_set_status($transaction);
-  return commerce_payment_transaction_save($transaction);
 }
 
 /**

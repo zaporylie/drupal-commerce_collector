@@ -92,6 +92,8 @@ function commerce_collector_payment_transaction_access($op, $transaction, $accou
 
 /**
  * Implements hook_permission().
+ *
+ * @todo Do we need it here?
  */
 function commerce_collector_permission() {
   return array(
@@ -104,6 +106,8 @@ function commerce_collector_permission() {
 
 /**
  * Implements hook_commerce_payment_method_info().
+ *
+ * @todo Add file.
  */
 function commerce_collector_commerce_payment_method_info() {
   $payment_methods = array();
@@ -230,6 +234,8 @@ function commerce_collector_commerce_cart_order_refresh($order_wrapper) {
 
 /**
  * Payment method callback: settings form.
+ *
+ * @todo Move to .inc file.
  */
 function commerce_collector_settings_form($settings = array()) {
 
@@ -434,6 +440,8 @@ function commerce_collector_settings_form($settings = array()) {
 
 /**
  * Payment method callback: submit form.
+ *
+ * @todo Move to .inc file.
  */
 function commerce_collector_submit_form($payment_method, $pane_values, $checkout_pane, $order) {
 
@@ -467,38 +475,30 @@ function commerce_collector_submit_form($payment_method, $pane_values, $checkout
 
 /**
  * Payment method callback: submit form submission.
+ *
+ * @todo Move to .inc file.
  */
 function commerce_collector_submit_form_submit($payment_method, $pane_form, $pane_values, $order, $charge) {
 
   module_load_include('inc', 'commerce_collector', 'commerce_collector');
+
   // Adds nee line item with payment fee (only one no matter how many
   // transactions has been registered).
   commerce_collector_fee_line_item($payment_method, $order);
 
-//
-//  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
-//  $charge = $order_wrapper->commerce_order_total->value();
-//
-//  // Create and save transaction.
-//  $transaction = commerce_payment_transaction_new('commerce_collector', $order->order_id);
-//  $transaction->instance_id = $payment_method['instance_id'];
-//  $transaction->amount = $charge['amount'];
-//  $transaction->currency_code = $charge['currency_code'];
-//  $transaction->data['pane_values'] = $pane_values;
-//  $transaction->data['invoice'] = (array) $result;
-//  $transaction->remote_id = $result->InvoiceNo;
-//  $transaction->remote_status = $result->InvoiceStatus;
-//
-//  if (!commerce_collector_save_transaction($transaction)) {
-//    drupal_set_message(t('Unable to process transaction right now, please try again.', 'error'));
-//    return FALSE;
-//  }
-//
-//  // Save transaction specific date in order.
   $order->data['commerce_collector']['pane_values'] = $pane_values;
-//  $order->data['commerce_collector']['transaction'] = $transaction;
 }
 
+/**
+ * Cancel inactive payment transactions.
+ *
+ * Cancel user transactions which might be considered as discarded.
+ *
+ * @param $order
+ *   Order object.
+ *
+ * @todo Move to .inc file.
+ */
 function commerce_collector_cancel_transactions($order) {
   // Find all invoices which can be activated.
   $query = db_select('commerce_payment_transaction', 't');
@@ -518,14 +518,17 @@ function commerce_collector_cancel_transactions($order) {
 
 /**
  * Payment method callback: redirect form.
+ *
+ * @todo Move to .inc file.
  */
 function commerce_collector_redirect_form($form, &$form_state, $order, $payment_method) {
 
   // Reset all unprocessed transactions.
   commerce_collector_cancel_transactions($order);
 
-  // Use order balance when creating new transaction.
-  $charge = commerce_payment_order_balance($order);
+  // Collector supports only full payments.
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  $charge = $order_wrapper->commerce_order_total->value();
 
   // Create and save transaction.
   $transaction = commerce_payment_transaction_new('commerce_collector', $order->order_id);
@@ -554,6 +557,8 @@ function commerce_collector_redirect_form($form, &$form_state, $order, $payment_
  * Payment method callback: redirect form return validation.
  *
  * We trust Nets to be the only ones that know about this.
+ *
+ * @todo Move to .inc file.
  */
 function commerce_collector_redirect_form_validate($order, $payment_method) {
 
@@ -607,7 +612,7 @@ function commerce_collector_redirect_form_validate($order, $payment_method) {
     drupal_alter('commerce_collector_delivery_address', $payload['DeliveryAddress'], $payload, $order, $payment_method);
 
     $billing_address_profile = $settings['commerce_collector_invoice']['commerce_collector_billing_address_profile'];
-    if (!isset($billing_address_profile)) {
+    if (empty($billing_address_profile)) {
       $billing_address_profile = $delivery_address_profile;
     }
     $payload['InvoiceAddress'] = array();
@@ -733,23 +738,13 @@ function commerce_collector_redirect_form_validate($order, $payment_method) {
   }
 }
 
-
-/**
- * Implements hook_form_FORM_ID_alter().
- */
-function commerce_collector_form_commerce_payment_order_transaction_add_form_alter(&$form, &$form_state) {
-  if (isset($form_state['payment_method']['method_id']) && $form_state['payment_method']['method_id'] == 'commerce_collector') {
-    $form['payment_terminal']['amount']['#access'] = FALSE;
-    $form['payment_terminal']['currency_code']['#access'] = FALSE;
-  }
-}
-
 /**
  * Implements hook_commerce_order_presave().
+ *
+ * @todo Remove this part, make it Rules triggered instead.
  */
 function commerce_collector_commerce_order_presave($order) {
   if (isset($order->data['payment_method']) && $payment_method = commerce_payment_method_instance_load($order->data['payment_method'])) {
-
     // Load payment method instance to retrieve instance settings.
     _commerce_collector_defaults($payment_method['settings']);
 
@@ -802,24 +797,24 @@ function commerce_collector_entity_view_alter(&$build, $type) {
     $rows = array();
 
     // Add Invoice number if present.
-    if (isset($build['#entity']->data['invoice']['InvoiceNo'])) {
+    if (isset($build['#entity']->data['response']['InvoiceNo'])) {
       $rows['InvoiceNo'] = array(
         array(
           'data' => t('Invoice number'),
           'header' => TRUE,
         ),
         array(
-          'data' => $build['#entity']->data['invoice']['InvoiceNo'],
+          'data' => $build['#entity']->data['response']['InvoiceNo'],
         ),
       );
     }
 
     // InvoiceURL element has to variations.
-    if (isset($build['#entity']->data['invoice']['InvoiceUrl'])) {
-      $invoice_url = $build['#entity']->data['invoice']['InvoiceUrl'];
+    if (isset($build['#entity']->data['response']['InvoiceUrl'])) {
+      $invoice_url = $build['#entity']->data['response']['InvoiceUrl'];
     }
-    elseif (isset($build['#entity']->data['invoice']['InvoiceURL'])) {
-      $invoice_url = $build['#entity']->data['invoice']['InvoiceURL'];
+    elseif (isset($build['#entity']->data['response']['InvoiceURL'])) {
+      $invoice_url = $build['#entity']->data['response']['InvoiceURL'];
     }
     // Add Invoice URL if present.
     if (isset($invoice_url)) {
@@ -914,6 +909,12 @@ function _commerce_collector_get_countries() {
   return array_intersect_key(country_get_list(), array_flip($available));
 }
 
+/**
+ * Customer profile instances in commerce_order entities.
+ *
+ * @return array
+ *   Return array of key value pairs
+ */
 function _commerce_collector_get_customer_profile_instances() {
   $instances = field_info_instances('commerce_order');
   $array = array(NULL => t('- Choose -'));
@@ -927,7 +928,7 @@ function _commerce_collector_get_customer_profile_instances() {
       $array[$type][$field_name] = $field_instance['label'];
     }
   }
-  dpm($instances);
+
   return $array;
 }
 
