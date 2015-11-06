@@ -2,7 +2,7 @@
 
 /**
  * @file
- * Move this functions away from module file to save some resources.
+ * Payment method definition and helper functions.
  */
 
 /**
@@ -120,32 +120,6 @@ function commerce_collector_settings_form($settings = array()) {
       COMMERCE_COLLECTOR_INVOICE_ACTIVATION_MANUAL => t('Manual activation'),
     ),
     '#description' => t('Manual activation - Purchase will be preliminary and must be activated manually under Order Payment tab or through the Collector Partner Portal. You can also choose order states which will auto activate or cancel/credit payment for you.'),
-  );
-  $form['commerce_collector_invoice']['commerce_collector_invoice_activation_state'] = array(
-    '#type' => 'select',
-    '#title' => t('Auto-activate'),
-    '#description' => t('Auto-activate invoice for one of selected states'),
-    '#multiple' => TRUE,
-    '#default_value' => $settings['commerce_collector_invoice']['commerce_collector_invoice_activation_state'],
-    '#options' => commerce_order_state_options_list(),
-    '#states' => array(
-      'visible' => array(
-        ':input[name="commerce_collector_invoice_activation"]' => array('value' => 0),
-      ),
-    ),
-  );
-  $form['commerce_collector_invoice']['commerce_collector_invoice_deactivation_state'] = array(
-    '#type' => 'select',
-    '#title' => t('Auto-deactivate'),
-    '#description' => t('Auto-deactivate invoice for one of selected states'),
-    '#multiple' => TRUE,
-    '#default_value' => $settings['commerce_collector_invoice']['commerce_collector_invoice_deactivation_state'],
-    '#options' => commerce_order_state_options_list(),
-    '#states' => array(
-      'visible' => array(
-        ':input[name="commerce_collector_invoice_activation"]' => array('value' => 0),
-      ),
-    ),
   );
   $form['commerce_collector_invoice']['commerce_collector_invoice_partial_payments'] = array(
     '#type' => 'select',
@@ -471,93 +445,7 @@ function commerce_collector_redirect_form_validate($order, $payment_method) {
 }
 
 /**
- * Activate commerce_collector transactions.
- *
- * @param object $order
- *   Order entity.
- *
- * @return bool
- *   TRUE or FALSE.
- *
- * @todo Move to rules file.
- */
-function _commerce_collector_commerce_order_activate($order) {
-  // Find all invoices which can be activated.
-  $query = new EntityFieldQuery();
-  $query->entityCondition('entity_type', 'commerce_payment_transaction')
-    ->propertyCondition('order_id', $order->order_id)
-    ->propertyCondition('payment_method', 'commerce_collector')
-    ->propertyCondition('remote_status', COMMERCE_COLLECTOR_PAYMENT_STATUS_PENDING);
-  $result = $query->execute();
-
-  // Inform only users with update perm to payment transaction.
-  $inform = commerce_payment_transaction_order_access('update', $order);
-
-  if (isset($result['commerce_payment_transaction']) && count($result['commerce_payment_transaction']) == 1) {
-
-    // Get transaction id.
-    $transaction_ids = array_keys($result['commerce_payment_transaction']);
-
-    // Load transaction entity.
-    $transaction = commerce_payment_transaction_load(reset($transaction_ids));
-
-    // Process, activate transaction.
-    return commerce_collector_activate_invoice($transaction);
-  }
-  elseif (isset($result['commerce_payment_transaction']) && count($result['commerce_payment_transaction']) > 1) {
-    if ($inform) {
-      drupal_set_message(t('Unable to auto-activate more than one invoice at the same time. <a href="@href">Manage it manually.</a>', array('@href' => url('admin/commerce/orders/' . $order->order_id . '/payment'))), 'warning');
-    }
-  }
-  return FALSE;
-}
-
-/**
- * Deactivate commerce_collector transactions.
- *
- * @param object $order
- *   Order entity.
- *
- * @return bool
- *   TRUE or FALSE.
- *
- * @todo Move to rules file.
- */
-function _commerce_collector_commerce_order_deactivate($order) {
-  // Find all invoices which can be activated.
-  $query = new EntityFieldQuery();
-  $query->entityCondition('entity_type', 'commerce_payment_transaction')
-    ->propertyCondition('order_id', $order->order_id)
-    ->propertyCondition('payment_method', 'commerce_collector')
-    ->propertyCondition('remote_status', COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED, '!=');
-  $result = $query->execute();
-
-  // Inform only users with update perm to payment transaction.
-  $inform = commerce_payment_transaction_order_access('update', $order);
-
-  if (isset($result['commerce_payment_transaction']) && count($result['commerce_payment_transaction']) == 1) {
-
-    // Get transaction id.
-    $transaction_ids = array_keys($result['commerce_payment_transaction']);
-
-    // Load transaction entity.
-    $transaction = commerce_payment_transaction_load(reset($transaction_ids));
-
-    // Process, activate transaction.
-    return commerce_collector_deactivate_invoice($transaction);
-  }
-  elseif (isset($result['commerce_payment_transaction']) && count($result['commerce_payment_transaction']) > 1) {
-    if ($inform) {
-      drupal_set_message(t('Unable to auto-deactivate more than one invoice at the same time. <a href="@href">Manage it manually.</a>', array('@href' => url('admin/commerce/orders/' . $order->order_id . '/payment'))), 'warning');
-    }
-  }
-  return FALSE;
-}
-
-/**
  * Activate invoice for payment.
- *
- * @todo Move to rules file?
  */
 function commerce_collector_activate_invoice($transaction) {
 
@@ -603,8 +491,6 @@ function commerce_collector_activate_invoice($transaction) {
 
 /**
  * Deactivate invoice for payment.
- *
- * @todo Move to rules file?
  */
 function commerce_collector_deactivate_invoice($transaction) {
 
@@ -653,8 +539,6 @@ function commerce_collector_deactivate_invoice($transaction) {
 
 /**
  * Credit an invoice.
- *
- * @todo Move to rules file?
  */
 function commerce_collector_credit_invoice($transaction) {
 
@@ -929,10 +813,10 @@ function _commerce_collector_get_rates() {
 }
 
 /**
- * Checks if an order contains a cod_fee line item.
+ * Checks if an order contains a collector_fee line item.
  *
  * @param object $order
- *   The order object to check for a cod_fee line item.
+ *   The order object to check for a collector_fee line item.
  *
  * @return bool
  *   TRUE if the order contains a cot_fee line item.
