@@ -302,39 +302,44 @@ function commerce_collector_fee_line_item($payment_method, $order, $delete = FAL
  *
  * @return bool
  *   TRUE if saved, FALSE if not.
+ *
+ * @deprecated
+ *   Use commerce_collector_set_status than commerce_payment_transaction_save.
  */
 function commerce_collector_save_transaction(&$transaction) {
+  commerce_collector_set_status($transaction);
+  return commerce_payment_transaction_save($transaction);
+}
+
+/**
+ * Change local status in reference to remote status.
+ *
+ * @param $transaction
+ *   (Reference) Transaction object.
+ */
+function commerce_collector_set_status(&$transaction) {
   switch ($transaction->remote_status) {
     case COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED:
       $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
+      $transaction->message = 'Invoice @number has been activated.';
       break;
 
     case COMMERCE_COLLECTOR_PAYMENT_STATUS_ON_HOLD:
     case COMMERCE_COLLECTOR_PAYMENT_STATUS_PENDING:
     case COMMERCE_COLLECTOR_PAYMENT_STATUS_SIGNING:
       $transaction->status = COMMERCE_PAYMENT_STATUS_PENDING;
+      $transaction->message = 'Invoice @number has a pending status (@status) now';
       break;
 
     case COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED:
       $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
+      $transaction->message = 'Invoice @number has been rejected.';
       break;
-  }
-
-  if ($transaction->remote_status == COMMERCE_COLLECTOR_PAYMENT_STATUS_REJECTED) {
-    $transaction->message = 'Invoice @number has been rejected.';
-  }
-  elseif ($transaction->remote_status == COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED) {
-    $transaction->message = 'Invoice @number has been activated.';
-  }
-  else {
-    $transaction->message = 'Invoice @number has a pending status (@status) now';
   }
   $transaction->message_variables = array(
     '@number' => $transaction->remote_id,
     '@status' => $transaction->remote_status,
   );
-
-  return commerce_payment_transaction_save($transaction);
 }
 
 /**

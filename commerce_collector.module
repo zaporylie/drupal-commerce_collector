@@ -475,31 +475,6 @@ function commerce_collector_submit_form_submit($payment_method, $pane_form, $pan
   // transactions has been registered).
   commerce_collector_fee_line_item($payment_method, $order);
 
-//  try {
-//    // Send request.
-//    $result = _commerce_collector_request($invoice, $payment_method, 'AddInvoice');
-//  }
-//  catch (Exception $e) {
-//    if (isset($e->faultcode) && $message = _commerce_collector_fault_codes_messages($e->faultcode)) {
-//      // If error should be presented to customer.
-//      form_set_error('commerce_collector', $message);
-//    }
-//    else {
-//      // Otherwise.
-//      form_set_error('commerce_collector', t('Collector was not able to process payment for provided data. Choose another payment method.'));
-//    }
-//    // Log exception.
-//    $uri = entity_uri('commerce_order', $order);
-//    watchdog('commerce_collector', 'Collector returned error %code for order %order_id. Payload: @payload', array('%code' => $e->faultcode, '%order_id' => $order->order_id, '@payload' => print_r($invoice, TRUE)), WATCHDOG_ERROR, l('view order', $uri['path'], array('absolute' => TRUE)));
-//    // Prevent changing order status to pending.
-//    return FALSE;
-//  }
-//
-//  if (!in_array($result->InvoiceStatus, array(COMMERCE_COLLECTOR_PAYMENT_STATUS_PENDING, COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED))) {
-//    form_set_error('commerce_collector', _commerce_collector_fault_codes_messages('DENIED_TO_PURCHASE'));
-//    // Prevent changing order status to pending.
-//    return FALSE;
-//  }
 //
 //  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
 //  $charge = $order_wrapper->commerce_order_total->value();
@@ -581,10 +556,6 @@ function commerce_collector_redirect_form($form, &$form_state, $order, $payment_
  * We trust Nets to be the only ones that know about this.
  */
 function commerce_collector_redirect_form_validate($order, $payment_method) {
-  dpm($order);
-  dpm($payment_method);
-  dpm($_POST);
-  dpm($_GET);
 
   try {
     $transaction = commerce_payment_transaction_load($_POST['transaction']);
@@ -599,7 +570,6 @@ function commerce_collector_redirect_form_validate($order, $payment_method) {
   }
 
   try {
-
     module_load_include('inc', 'commerce_collector', 'commerce_collector');
 
     // Load settings.
@@ -728,20 +698,32 @@ function commerce_collector_redirect_form_validate($order, $payment_method) {
       watchdog_exception('commerce_collector', $e);
 
       // Throw good-looking exception ;).
-      throw new Exception($message, $e->getCode());
+      throw new Exception($message);
     }
 
+    // Remote status has to be valid.
+    if (!in_array($result->InvoiceStatus, array(COMMERCE_COLLECTOR_PAYMENT_STATUS_PENDING, COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED))) {
+      throw new Exception(_commerce_collector_fault_codes_messages('DENIED_TO_PURCHASE'), 'DENIED_TO_PURCHASE');
+    }
 
+    $transaction->data['response'] = (array) $result;
+    $transaction->remote_id = $result->InvoiceNo;
+    $transaction->remote_status = $result->InvoiceStatus;
+
+    // Change transaction status.
+    commerce_collector_set_status($transaction);
 
     // Keep transaction status.
-    // @todo Set correct local status according to remote status.
-    commerce_payment_transaction_save($transaction);
-
-    throw new Exception('OK');
+    if (!commerce_payment_transaction_save($transaction)) {
+      throw new Exception('Unable to save transaction');
+    }
   }
   catch (Exception $e) {
     $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
-    $transaction->message = $e->getMessage();
+    $transaction->message = '@message';
+    $transaction->message_variables = array(
+      '@message' => $e->getMessage(),
+    );
     commerce_payment_transaction_save($transaction);
 
     commerce_payment_redirect_pane_previous_page($order);
@@ -749,57 +731,6 @@ function commerce_collector_redirect_form_validate($order, $payment_method) {
     watchdog_exception('commerce_collector', $e);
     return FALSE;
   }
-//  $remote_id = isset($_GET['transactionId']) ? $_GET['transactionId'] : '';
-//  $response_code = isset($_GET['responseCode']) ? $_GET['responseCode'] : '';
-//
-//  $message_variables = array(
-//    '%oid' => $order->order_id,
-//    '%tid' => $remote_id,
-//    '%rc' => $response_code
-//  );
-//
-//  if (empty($remote_id) || empty($response_code)) {
-//    watchdog('commerce_nets', 'Return from Nets has wrong values for order: %oid, transactionId: %tid and responseCode: %rc.', $message_variables, WATCHDOG_ERROR);
-//    return FALSE;
-//  }
-//
-//  $transaction = commerce_nets_get_transaction_by_remote_id($remote_id);
-//
-//  if (!$transaction) {
-//    watchdog('commerce_nets', 'Transaction can not be loaded for order: %oid from $remote_id: %tid.', $message_variables, WATCHDOG_ERROR);
-//    return FALSE;
-//  }
-//
-//  $nets_transaction = commerce_nets_query_transaction($payment_method, $remote_id);
-//
-//  if ($response_code !== 'OK') {
-//    $message_variables['%reason'] = '';
-//    if (isset($nets_transaction->ErrorLog)
-//      && isset($nets_transaction->ErrorLog->PaymentError)
-//      && isset($nets_transaction->ErrorLog->PaymentError->ResponseText)
-//    ) {
-//
-//      $message_variables['%reason'] = $nets_transaction->ErrorLog->PaymentError->ResponseText;
-//
-//      drupal_set_message(t('Status from Nets') . ' : ' . t($message_variables['%reason']), 'error');
-//    }
-//
-//    watchdog('commerce_nets', 'There was a problem with payment for order %oid, reason ":reason"', $message_variables, WATCHDOG_INFO);
-//
-//    // Update transaction to indicate current status.
-//    $transaction->remote_status = $response_code;
-//    $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
-//    commerce_payment_transaction_save($transaction);
-//
-//    return FALSE;
-//  }
-//
-//  // store pan_hash if recurring payment was set by user
-//  if (isset($nets_transaction->CardInformation->PanHash) && !empty($nets_transaction->CardInformation->PanHash)) {
-//    commerce_nets_recurring_save_payment_hash($order->uid, $nets_transaction->CardInformation);
-//  }
-//
-//  return commerce_nets_process_transaction($order, $payment_method, $transaction, $payment_method['settings']['payment_action']);
 }
 
 
