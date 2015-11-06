@@ -438,7 +438,6 @@ function commerce_collector_redirect_form_validate($order, $payment_method) {
     commerce_payment_transaction_save($transaction);
 
     commerce_payment_redirect_pane_previous_page($order);
-    drupal_set_message(t('Payment could not be processed. %message', array('%message' => $e->getMessage())), 'error');
     watchdog_exception('commerce_collector', $e);
     return FALSE;
   }
