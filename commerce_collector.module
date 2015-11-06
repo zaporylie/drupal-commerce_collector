@@ -47,7 +47,7 @@ function commerce_collector_menu() {
     'type' => MENU_LOCAL_ACTION,
   );
   $items['admin/commerce/orders/%commerce_order/payment/%commerce_payment_transaction/commerce_collector/activate-invoice'] = array(
-    'title' => 'Activate invoice',
+    'title' => 'Activate',
     'page callback' => 'commerce_collector_admin_activate_invoice',
     'page arguments' => array(3, 5),
     'access callback' => 'commerce_collector_payment_transaction_access',
@@ -57,7 +57,7 @@ function commerce_collector_menu() {
     'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
   );
   $items['admin/commerce/orders/%commerce_order/payment/%commerce_payment_transaction/commerce_collector/deactivate-invoice'] = array(
-    'title' => 'Deactivate invoice',
+    'title' => 'Deactivate',
     'page callback' => 'commerce_collector_admin_deactivate_invoice',
     'page arguments' => array(3, 5),
     'access callback' => 'commerce_collector_payment_transaction_access',
@@ -91,27 +91,31 @@ function commerce_collector_payment_transaction_access($op, $transaction, $accou
 }
 
 /**
- * Implements hook_permission().
- */
-function commerce_collector_permission() {
-  return array(
-    'commerce collector modify invoice data' => array(
-      'title' => t('Modify personal data for invoice'),
-      'description' => t('By default data will be taken from billing profile.'),
-    ),
-  );
-}
-
-/**
  * Implements hook_commerce_payment_method_info().
  */
 function commerce_collector_commerce_payment_method_info() {
   $payment_methods = array();
 
   $payment_methods['commerce_collector'] = array(
-    'title' => t('Collector'),
+    'title' => t('Collector Invoice'),
     'description' => t('Collector external payment gateway.'),
+
+    'short_title' => t('Collector'),
+
+    // Start as enabled.
     'active' => TRUE,
+
+    // Disable payments in order’s Payment tab.
+    'terminal' => FALSE,
+
+    // Sends user offsite.
+    'offsite' => TRUE,
+
+    // Automaticly redirect user offsite.
+    'offsite_autoredirect' => TRUE,
+
+    // File to be included.
+    'file' => 'commerce_collector.inc',
   );
 
   return $payment_methods;
@@ -132,7 +136,7 @@ function commerce_collector_commerce_price_component_type_info() {
 /**
  * Implements hook_commerce_line_item_type_info().
  *
- * Define an cod_fee line-item type.
+ * Define an collector_fee line-item type.
  */
 function commerce_collector_commerce_line_item_type_info() {
   return array(
@@ -157,35 +161,15 @@ function commerce_collector_line_item_title() {
 }
 
 /**
- * Checks if an order contains a cod_fee line item.
- *
- * @param object $order
- *   The order object to check for a cod_fee line item.
- *
- * @return bool
- *   TRUE if the order contains a cot_fee line item.
- */
-function commerce_collector_line_item_exists($order) {
-  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
-  foreach ($order_wrapper->commerce_line_items->getIterator() as $line_item_wrapper) {
-    // If this line item is a cod_fee line item...
-    if (isset($line_item_wrapper->type) && $line_item_wrapper->type->value() == 'collector_fee') {
-      return TRUE;
-    }
-  }
-  return FALSE;
-}
-
-/**
  * Implements hook_commerce_cart_line_item_refresh().
  *
- * Make sure we delete the fee line item if we have one and the payment method
- * is no longer collector_fee.
+ * Make sure we delete the collector fee line item if we have one and the
+ * payment method is no longer cash on delivery.
  */
 function commerce_collector_commerce_cart_line_item_refresh($line_item, $order_wrapper) {
   if ($line_item->type == 'collector_fee') {
     $order = $order_wrapper->value();
-    if ((isset($order->data['payment_method']) && !(strpos($order->data['payment_method'], 'commerce_collector|') === 0)) || isset($order->data['no_payment'])) {
+    if ((isset($order->data['payment_method']) && strpos($order->data['payment_method'], 'commerce_collector|') !== 0) || isset($order->data['no_payment'])) {
       $line_item_wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
       $line_item_wrapper->delete();
     }
@@ -195,511 +179,26 @@ function commerce_collector_commerce_cart_line_item_refresh($line_item, $order_w
 /**
  * Implements hook_commerce_cart_order_refresh().
  *
- * Make sure we delete the cod fee line item if we have one and the payment
- * method is no longer cash on delivery.
+ * Make sure we delete the collector fee line item if we have one and the
+ * payment method is no longer cash on delivery.
  */
 function commerce_collector_commerce_cart_order_refresh($order_wrapper) {
   foreach ($order_wrapper->commerce_line_items->getIterator() as $line_item_wrapper) {
     $line_item = $line_item_wrapper->value();
     if ($line_item->type == 'collector_fee') {
       $order = $order_wrapper->value();
-      if ((isset($order->data['payment_method']) && !(strpos($order->data['payment_method'], 'commerce_collector|') === 0)) || isset($order->data['no_payment'])) {
+      if (isset($order->data['payment_method']) && ($payment_method = commerce_payment_method_instance_load($order->data['payment_method'])) && $payment_method['method_id'] == 'commerce_collector') {
+        $settings = $payment_method['settings'];
+        _commerce_collector_defaults($settings);
+        $fee = $settings['commerce_collector_login']['commerce_collector_fee'];
+      }
+      if (isset($order->data['no_payment']) || empty($fee)) {
         // Remove the line item from the line item reference field.
         // This will trigger the function that called this hook to save the
         // order because it has changed.
         commerce_entity_reference_delete($order, 'commerce_line_items', 'line_item_id', $line_item->line_item_id);
         // Delete the actual line item.
         commerce_line_item_delete($line_item->line_item_id);
-      }
-    }
-  }
-}
-
-/**
- * Payment method callback: settings form.
- */
-function commerce_collector_settings_form($settings = array()) {
-
-  _commerce_collector_defaults($settings);
-
-  $form['commerce_collector_login'] = array(
-    '#type' => 'fieldset',
-    '#title' => t('Collector credentials'),
-  );
-  $form['commerce_collector_login']['commerce_collector_environment'] = array(
-    '#type' => 'select',
-    '#required' => TRUE,
-    '#title' => t('Environment'),
-    '#default_value' => $settings['commerce_collector_login']['commerce_collector_environment'],
-    '#options' => array(
-      'https://ecommercetest.collector.se/v3.0/' => t('Test'),
-      'https://ecommerce.collector.se/v3.0/' => t('Production'),
-    ),
-    '#description' => t('Choose which environment you want to use.'),
-  );
-  $form['commerce_collector_login']['commerce_collector_username'] = array(
-    '#type' => 'textfield',
-    '#required' => TRUE,
-    '#title' => t('Username'),
-    '#default_value' => $settings['commerce_collector_login']['commerce_collector_username'],
-    '#description' => t('You should get this data from Collector.'),
-  );
-  $form['commerce_collector_login']['commerce_collector_password'] = array(
-    '#type' => 'textfield',
-    '#required' => TRUE,
-    '#title' => t('Password'),
-    '#default_value' => $settings['commerce_collector_login']['commerce_collector_password'],
-    '#description' => t('You should get this data from Collector.'),
-  );
-  $form['commerce_collector_login']['commerce_collector_store_id'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Store ID'),
-    '#default_value' => $settings['commerce_collector_login']['commerce_collector_store_id'],
-    '#description' => t('You should get this data from Collector.'),
-  );
-  $form['commerce_collector_login']['commerce_collector_credit_terms'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Absolute path to collector credit terms.'),
-    '#default_value' => $settings['commerce_collector_login']['commerce_collector_credit_terms'],
-    '#required' => TRUE,
-    '#description' => t('You should get link to online PDF document from Collector.'),
-  );
-  $form['commerce_collector_login']['commerce_collector_secci'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Absolute path to secci information.'),
-    '#default_value' => $settings['commerce_collector_login']['commerce_collector_secci'],
-    '#required' => TRUE,
-    '#description' => t('You should get link to online PDF document from Collector.'),
-  );
-  $form['commerce_collector_login']['commerce_collector_fee'] = array(
-    '#type' => 'checkbox',
-    '#title' => t('Collect an extra fee.'),
-    '#description' => t('Check this box to specify an extra fee.'),
-    '#default_value' => $settings['commerce_collector_login']['commerce_collector_fee'],
-  );
-  $form['commerce_collector_login']['commerce_collector_fee_amount'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Amount of the extra fee.'),
-    '#description' => t('Give the ammount you want to use if this method is selected. Be aware that this needs to be in minor units aks cents.'),
-    '#default_value' => $settings['commerce_collector_login']['commerce_collector_fee_amount'],
-    '#element_validate' => array('element_validate_number'),
-    '#states' => array(
-      'visible' => array(
-        ':input[name="parameter[payment_method][settings][payment_method][settings][commerce_collector_login][commerce_collector_fee]"]' => array('checked' => TRUE),
-      ),
-    ),
-  );
-
-  $form['commerce_collector_invoice'] = array(
-    '#type' => 'fieldset',
-    '#title' => t('Invoice settings'),
-  );
-  $form['commerce_collector_invoice']['commerce_collector_invoice_country'] = array(
-    '#type' => 'select',
-    '#title' => t('Available countries'),
-    '#required' => TRUE,
-    '#multiple' => TRUE,
-    '#default_value' => $settings['commerce_collector_invoice']['commerce_collector_invoice_country'],
-    '#options' => _commerce_collector_get_countries(),
-    '#description' => t('This list has been made based on countries supported by Collector. Choose countries which are supported by your shop.'),
-  );
-  $form['commerce_collector_invoice']['commerce_collector_invoice_activation'] = array(
-    '#type' => 'select',
-    '#title' => t('Activation'),
-    '#default_value' => $settings['commerce_collector_invoice']['commerce_collector_invoice_activation'],
-    '#options' => array(
-      COMMERCE_COLLECTOR_INVOICE_ACTIVATION_MANUAL => t('Manual activation'),
-    ),
-    '#description' => t('Manual activation - Purchase will be preliminary and must be activated manually under Order Payment tab or through the Collector Partner Portal. You can also choose order states which will auto activate or cancel/credit payment for you.'),
-  );
-  $form['commerce_collector_invoice']['commerce_collector_invoice_activation_state'] = array(
-    '#type' => 'select',
-    '#title' => t('Auto-activate'),
-    '#description' => t('Auto-activate invoice for one of selected states'),
-    '#multiple' => TRUE,
-    '#default_value' => $settings['commerce_collector_invoice']['commerce_collector_invoice_activation_state'],
-    '#options' => commerce_order_state_options_list(),
-    '#states' => array(
-      'visible' => array(
-        ':input[name="commerce_collector_invoice_activation"]' => array('value' => 0),
-      ),
-    ),
-  );
-  $form['commerce_collector_invoice']['commerce_collector_invoice_deactivation_state'] = array(
-    '#type' => 'select',
-    '#title' => t('Auto-deactivate'),
-    '#description' => t('Auto-deactivate invoice for one of selected states'),
-    '#multiple' => TRUE,
-    '#default_value' => $settings['commerce_collector_invoice']['commerce_collector_invoice_deactivation_state'],
-    '#options' => commerce_order_state_options_list(),
-    '#states' => array(
-      'visible' => array(
-        ':input[name="commerce_collector_invoice_activation"]' => array('value' => 0),
-      ),
-    ),
-  );
-  $form['commerce_collector_invoice']['commerce_collector_invoice_partial_payments'] = array(
-    '#type' => 'select',
-    '#multiple' => TRUE,
-    '#title' => t('Partial payments'),
-    '#default_value' => $settings['commerce_collector_invoice']['commerce_collector_invoice_partial_payments'],
-    '#options' => _commerce_collector_get_rates(),
-    '#description' => t('Select one of available invoice types. By default - invoice per order.'),
-  );
-  $form['commerce_collector_invoice']['commerce_collector_invoice_delivery'] = array(
-    '#type' => 'select',
-    '#title' => t('Delivery method'),
-    '#default_value' => $settings['commerce_collector_invoice']['commerce_collector_invoice_delivery'],
-    '#options' => array(
-      COMMERCE_COLLECTOR_INVOICE_DELIVERY_POST => t('Normal mail or in package'),
-      COMMERCE_COLLECTOR_INVOICE_DELIVERY_EMAIL => t('E-mail'),
-    ),
-    '#description' => t('Print and send invoice in package or allow Collector to send it for you (if e-mail address has been provided). <strong>This value will be overwritten if customer will choose partial payments.</strong>'),
-  );
-  $form['commerce_collector_invoice']['commerce_collector_invoice_type'] = array(
-    '#type' => 'select',
-    '#title' => t('Invoice type'),
-    '#default_value' => $settings['commerce_collector_invoice']['commerce_collector_invoice_type'],
-    '#options' => array(
-      COMMERCE_COLLECTOR_INVOICE_TYPE_DIRECT => t('Invoice in package or directly sent with e-mail'),
-      COMMERCE_COLLECTOR_INVOICE_TYPE_MONTHLY => t('Monthly Invoice'),
-      COMMERCE_COLLECTOR_INVOICE_TYPE_AGGREGATED => t('Aggregated Invoice'),
-      COMMERCE_COLLECTOR_INVOICE_TYPE_INTEREST_FREE => t('Interest Free Invoice'),
-      COMMERCE_COLLECTOR_INVOICE_TYPE_ANNUITY => t('Annuity invoice'),
-    ),
-    '#description' => t('Select one of available invoice types. By default - invoice per order. <strong>This value will be overwritten for partial payments, respectively Interest Free Invoice or Annuity invoice depends on partial payment value.</strong>'),
-  );
-  $form['commerce_collector_vat'] = array(
-    '#type' => 'fieldset',
-    '#title' => t('VAT settings'),
-  );
-  $form['commerce_collector_vat']['commerce_collector_use_vat_module'] = array(
-    '#type' => 'select',
-    '#title' => t('Use VAT module'),
-    '#description' => t('If VAT module has been enabled you might want to use it instead of fixed VAT rate.'),
-    '#default_value' => $settings['commerce_collector_vat']['commerce_collector_use_vat_module'],
-    '#options' => array(
-      TRUE => t('VAT module'),
-      FALSE => t('Fixed VAT rate'),
-    ),
-  );
-  $form['commerce_collector_vat']['commerce_collector_fixed_vat_rate'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Fixed VAT rate'),
-    '#description' => t('ex. "22" for 22% or "15.5" for 15,5%'),
-    '#size' => 6,
-    '#maxlength' => 6,
-    '#default_value' => $settings['commerce_collector_vat']['commerce_collector_fixed_vat_rate'],
-    '#element_validate' => array('_commerce_collector_validate_decimal_number'),
-    '#states' => array(
-      'visible' => array(
-        ':input[name="parameter[payment_method][settings][payment_method][settings][commerce_collector_vat][commerce_collector_use_vat_module]"]' => array('value' => 0),
-      ),
-    ),
-  );
-  return $form;
-}
-
-/**
- * Payment method callback: submit form.
- */
-function commerce_collector_submit_form($payment_method, $pane_values, $checkout_pane, $order) {
-
-  _commerce_collector_defaults($payment_method['settings']);
-
-  // Load locale.
-  include_once DRUPAL_ROOT . '/includes/locale.inc';
-  $options = array_intersect_key(country_get_list(), $payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_country']);
-
-  if ($partial_payment_options = array_intersect_key(_commerce_collector_get_rates(), $payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_partial_payments'])) {
-    $form['partial_payment_option'] = array(
-      '#type' => 'radios',
-      '#required' => TRUE,
-      '#title' => t('Choose partial payment option'),
-      '#options' => $partial_payment_options,
-    );
-  }
-
-  // Build wrapper over $order.
-  $wrapper = entity_metadata_wrapper('commerce_order', $order);
-  $is_billing_address = FALSE;
-  if (isset($wrapper->commerce_customer_billing) && isset($wrapper->commerce_customer_billing->commerce_customer_address)) {
-    $is_billing_address = TRUE;
-  }
-  if ($is_billing_address && isset($wrapper->commerce_customer_billing->commerce_customer_address->country)) {
-    $country_code = $wrapper->commerce_customer_billing->commerce_customer_address->country->value();
-  }
-  else {
-    $country_code = NULL;
-  }
-
-  $form['country'] = array(
-    '#type' => 'select',
-    '#title' => t('Country'),
-    '#required' => TRUE,
-    '#default_value' => count($options) == 1 ? key($options) : $country_code,
-    '#disabled' => count($options) == 1 ? TRUE : FALSE,
-    '#options' => $options,
-  );
-  $form['personal_number'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Personal number'),
-    '#required' => TRUE,
-  );
-
-  // These field are available for users with specific permission.
-  // Other users will get it pre-rendered based on billing profile and hidden.
-  $form['address'] = array(
-    '#access' => user_access('commerce collector modify invoice data'),
-    '#tree' => TRUE,
-  );
-  $form['address']['Firstname'] = array(
-    '#type' => 'textfield',
-    '#title' => t('First name'),
-    '#required' => TRUE,
-    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->first_name->value() : '',
-  );
-  $form['address']['Lastname'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Last name'),
-    '#required' => TRUE,
-    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->last_name->value() : '',
-  );
-  $form['address']['Address1'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Address 1'),
-    '#required' => TRUE,
-    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->thoroughfare->value() : '',
-  );
-  $form['address']['Address2'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Address 2'),
-    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->premise->value() : '',
-  );
-  $form['address']['COAddress'] = array(
-    '#type' => 'textfield',
-    '#title' => t('C/o address'),
-    '#default_value' => '',
-  );
-  $form['address']['City'] = array(
-    '#type' => 'textfield',
-    '#title' => t('City'),
-    '#required' => TRUE,
-    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->locality->value() : '',
-  );
-  $form['address']['CountryCode'] = array(
-    '#type' => 'select',
-    '#title' => t('Country Code'),
-    '#required' => TRUE,
-    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->country->value() : '',
-    '#options' => _commerce_collector_get_countries(),
-  );
-  $form['address']['PostalCode'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Postal Code'),
-    '#required' => TRUE,
-    '#default_value' => $is_billing_address ? $wrapper->commerce_customer_billing->commerce_customer_address->postal_code->value() : '',
-  );
-  $form['address']['CellPhoneNumber'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Cell phone'),
-    '#default_value' => '',
-  );
-  $form['address']['CompanyName'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Company name'),
-    '#default_value' => '',
-  );
-  $form['address']['Email'] = array(
-    '#type' => 'textfield',
-    '#title' => t('E-mail address'),
-    '#default_value' => '',
-  );
-  $form['address']['PhoneNumber'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Phone number'),
-    '#default_value' => '',
-  );
-  $form['confirmation'] = array(
-    '#type' => 'checkbox',
-    '#title' => t('I accept <a href="@credit_terms">general terms and conditions for credit agreement</a> and <a href="@secci">standard european consumer credit information</a>.', array('@credit_terms' => $payment_method['settings']['commerce_collector_login']['commerce_collector_credit_terms'], '@secci' => $payment_method['settings']['commerce_collector_login']['commerce_collector_secci'])),
-    '#required' => TRUE,
-  );
-  return $form;
-}
-
-/**
- * Payment method callback: submit form submission.
- */
-function commerce_collector_submit_form_submit($payment_method, $pane_form, $pane_values, $order, $charge) {
-
-  module_load_include('inc', 'commerce_collector', 'commerce_collector');
-
-  // Loads default settings.
-  _commerce_collector_defaults($payment_method['settings']);
-
-  // Adds nee line item with payment fee (only one no matter how many
-  // transactions has been registered).
-  commerce_collector_fee_line_item($payment_method, $order);
-
-  try {
-    // Build wrapper over $order.
-    $wrapper = entity_metadata_wrapper('commerce_order', $order);
-
-    $invoice = array(
-      'ActivationOption' => $payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_activation'],
-      'CountryCode' => $pane_values['country'],
-      'Currency' => $wrapper->commerce_order_total->currency_code->value(),
-    );
-
-    // Add manually one by one to keep it in right order (sic!).
-    $invoice['DeliveryAddress'] = array();
-    $invoice['DeliveryAddress']['Address1'] = $pane_values['address']['Address1'];
-    $invoice['DeliveryAddress']['Address2'] = $pane_values['address']['Address2'];
-    $invoice['DeliveryAddress']['COAddress'] = $pane_values['address']['COAddress'];
-    $invoice['DeliveryAddress']['City'] = $pane_values['address']['City'];
-    $invoice['DeliveryAddress']['CountryCode'] = $pane_values['address']['CountryCode'];
-    $invoice['DeliveryAddress']['PostalCode'] = $pane_values['address']['PostalCode'];
-    $invoice['DeliveryAddress']['CellPhoneNumber'] = $pane_values['address']['CellPhoneNumber'];
-    $invoice['DeliveryAddress']['CompanyName'] = $pane_values['address']['CompanyName'];
-    $invoice['DeliveryAddress']['Email'] = $pane_values['address']['Email'];
-    $invoice['DeliveryAddress']['Firstname'] = $pane_values['address']['Firstname'];
-    $invoice['DeliveryAddress']['Lastname'] = $pane_values['address']['Lastname'];
-    $invoice['DeliveryAddress']['PhoneNumber'] = $pane_values['address']['PhoneNumber'];
-
-    // Prevent PHP of pointing to the same memory address (sic!!).
-    $invoice['InvoiceAddress'] = array() + $invoice['DeliveryAddress'];
-
-    // Partial payments support.
-    if (isset($pane_values['partial_payment_option']) && !empty($pane_values['partial_payment_option'])) {
-      $invoice['ProductCode'] = $pane_values['partial_payment_option'];
-      $invoice['InvoiceDeliveryMethod'] = 1;
-    }
-    else {
-      $invoice['InvoiceDeliveryMethod'] = $payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_delivery'];
-    }
-
-    $invoice['InvoiceRows'] = array();
-    foreach ($wrapper->commerce_line_items->getIterator() as $line) {
-      $invoice['InvoiceRows'][] = array(
-        'ArticleId' => $line->line_item_label->value(),
-        'Description' => commerce_line_item_title($line->value()),
-        'Quantity' => $line->quantity->value(),
-        'UnitPrice' => $line->commerce_unit_price->amount->value() / 100,
-        'VAT' => _commerce_collector_line_item_vat($payment_method, $line->commerce_unit_price->value()),
-      );
-    }
-
-    if (!empty($pane_values['partial_payment_option']) && in_array($pane_values['partial_payment_option'], array('IF_3_001', 'IF_6_001', 'IF_12_001'))) {
-      // We have to overwrite default invoice type if user want to use interest
-      // free invoice.
-      $invoice['InvoiceType'] = COMMERCE_COLLECTOR_INVOICE_TYPE_INTEREST_FREE;
-    }
-    elseif(!empty($pane_values['partial_payment_option']) && in_array($pane_values['partial_payment_option'], array('AN_24_001', 'AN_36_001'))) {
-      // We have to overwrite default invoice type if user wants to use partial
-      // payments with non-free interest rate.
-      $invoice['InvoiceType'] = COMMERCE_COLLECTOR_INVOICE_TYPE_ANNUITY;
-    }
-    else {
-      $invoice['InvoiceType'] = $payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_type'];
-    }
-
-    $invoice['OrderNo'] = $order->order_id;
-    $invoice['OrderDate'] = format_date($order->created, 'custom', 'Y-m-d\TH:i:sP');
-    $invoice['RegNo'] = $pane_values['personal_number'];
-
-    if ($store_id = $payment_method['settings']['commerce_collector_login']['commerce_collector_store_id']) {
-      $invoice['StoreId'] = $store_id;
-    }
-  }
-  catch (Exception $e) {
-    // Set form error if it is not possible to prepare correct request.
-    form_set_error('commerce_collector', t('Collector was not able to process payment for provided data. Choose another payment method.'));
-    watchdog_exception('commerce_collector', $e);
-    return FALSE;
-  }
-
-  try {
-    // Send request.
-    $result = _commerce_collector_request($invoice, $payment_method, 'AddInvoice');
-  }
-  catch (Exception $e) {
-    if (isset($e->faultcode) && $message = _commerce_collector_fault_codes_messages($e->faultcode)) {
-      // If error should be presented to customer.
-      form_set_error('commerce_collector', $message);
-    }
-    else {
-      // Otherwise.
-      form_set_error('commerce_collector', t('Collector was not able to process payment for provided data. Choose another payment method.'));
-    }
-    // Log exception.
-    $uri = entity_uri('commerce_order', $order);
-    watchdog('commerce_collector', 'Collector returned error %code for order %order_id. Payload: @payload', array('%code' => $e->faultcode, '%order_id' => $order->order_id, '@payload' => print_r($invoice, TRUE)), WATCHDOG_ERROR, l('view order', $uri['path'], array('absolute' => TRUE)));
-    // Prevent changing order status to pending.
-    return FALSE;
-  }
-
-  if (!in_array($result->InvoiceStatus, array(COMMERCE_COLLECTOR_PAYMENT_STATUS_PENDING, COMMERCE_COLLECTOR_PAYMENT_STATUS_ACTIVATED))) {
-    form_set_error('commerce_collector', _commerce_collector_fault_codes_messages('DENIED_TO_PURCHASE'));
-    // Prevent changing order status to pending.
-    return FALSE;
-  }
-
-  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
-  $charge = $order_wrapper->commerce_order_total->value();
-
-  // Create and save transaction.
-  $transaction = commerce_payment_transaction_new('commerce_collector', $order->order_id);
-  $transaction->instance_id = $payment_method['instance_id'];
-  $transaction->amount = $charge['amount'];
-  $transaction->currency_code = $charge['currency_code'];
-  $transaction->data['pane_values'] = $pane_values;
-  $transaction->data['invoice'] = (array) $result;
-  $transaction->remote_id = $result->InvoiceNo;
-  $transaction->remote_status = $result->InvoiceStatus;
-
-  if (!commerce_collector_save_transaction($transaction)) {
-    drupal_set_message(t('Unable to process transaction right now, please try again.', 'error'));
-    return FALSE;
-  }
-
-  // Save transaction specific date in order.
-  $order->data['commerce_collector']['pane_values'] = $pane_values;
-  $order->data['commerce_collector']['transaction'] = $transaction;
-}
-
-/**
- * Implements hook_form_FORM_ID_alter().
- */
-function commerce_collector_form_commerce_payment_order_transaction_add_form_alter(&$form, &$form_state) {
-  if (isset($form_state['payment_method']['method_id']) && $form_state['payment_method']['method_id'] == 'commerce_collector') {
-    $form['payment_terminal']['amount']['#access'] = FALSE;
-    $form['payment_terminal']['currency_code']['#access'] = FALSE;
-  }
-}
-
-/**
- * Implements hook_commerce_order_presave().
- */
-function commerce_collector_commerce_order_presave($order) {
-  if (isset($order->data['payment_method']) && $payment_method = commerce_payment_method_instance_load($order->data['payment_method'])) {
-
-    // Load payment method instance to retrieve instance settings.
-    _commerce_collector_defaults($payment_method['settings']);
-
-    if ($payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_activation'] == COMMERCE_COLLECTOR_INVOICE_ACTIVATION_MANUAL) {
-      // Get order status.
-      $status = commerce_order_status_load($order->status);
-      $activate_for = $payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_activation_state'];
-      $deactivate_for = $payment_method['settings']['commerce_collector_invoice']['commerce_collector_invoice_deactivation_state'];
-
-      if (!empty($activate_for) && in_array($status['state'], $activate_for)) {
-        module_load_include('inc', 'commerce_collector', 'commerce_collector');
-        _commerce_collector_commerce_order_activate($order);
-      }
-      elseif (!empty($deactivate_for) && in_array($status['state'], $deactivate_for)) {
-        module_load_include('inc', 'commerce_collector', 'commerce_collector');
-        _commerce_collector_commerce_order_deactivate($order);
       }
     }
   }
@@ -736,24 +235,24 @@ function commerce_collector_entity_view_alter(&$build, $type) {
     $rows = array();
 
     // Add Invoice number if present.
-    if (isset($build['#entity']->data['invoice']['InvoiceNo'])) {
+    if (isset($build['#entity']->data['response']['InvoiceNo'])) {
       $rows['InvoiceNo'] = array(
         array(
           'data' => t('Invoice number'),
           'header' => TRUE,
         ),
         array(
-          'data' => $build['#entity']->data['invoice']['InvoiceNo'],
+          'data' => $build['#entity']->data['response']['InvoiceNo'],
         ),
       );
     }
 
     // InvoiceURL element has to variations.
-    if (isset($build['#entity']->data['invoice']['InvoiceUrl'])) {
-      $invoice_url = $build['#entity']->data['invoice']['InvoiceUrl'];
+    if (isset($build['#entity']->data['response']['InvoiceUrl'])) {
+      $invoice_url = $build['#entity']->data['response']['InvoiceUrl'];
     }
-    elseif (isset($build['#entity']->data['invoice']['InvoiceURL'])) {
-      $invoice_url = $build['#entity']->data['invoice']['InvoiceURL'];
+    elseif (isset($build['#entity']->data['response']['InvoiceURL'])) {
+      $invoice_url = $build['#entity']->data['response']['InvoiceURL'];
     }
     // Add Invoice URL if present.
     if (isset($invoice_url)) {
@@ -779,30 +278,6 @@ function commerce_collector_entity_view_alter(&$build, $type) {
 }
 
 /**
- * Error codes available for user.
- */
-function _commerce_collector_fault_codes_messages($code = NULL) {
-  $codes = array(
-    'DENIED_TO_PURCHASE' => t('Unfortunately you were not approved for using invoice as your payment method. Please choose another payment method to complete your order.'),
-    'CREDIT_CHECK_DENIED' => t('Unfortunately you were not approved for using invoice as your payment method. Please choose another payment method to complete your order.'),
-    'RESERVATION_NOT_APPROVED' => t('Unfortunately you were not approved for using invoice as your payment method. Please choose another payment method to complete your order.'),
-    'PURCHASE_AMOUNT_GREATER_THAN_MAX_CREDIT_AMOUNT' => t('The total value of your shopping cart is too large for the invoice payment method. Please remove some products from your cart or choose another payment method to complete your order.'),
-    'INVALID_REGISTRATION_NUMBER' => t('The personal number you supplied is not correct. Please verify the number and try again.'),
-    'AGREEMENT_RULES_VALIDATION_FAILED' => t('The personal information you supplied does not match with the information registered in the National Registry. Please verify your information and try again.'),
-    'UNHANDLED_EXCEPTION' => t('Technical problem. Please try again later of choose another payment method for completing your order.'),
-  );
-  if (isset($codes[str_replace('s:', '', $code)])) {
-    return $codes[str_replace('s:', '', $code)];
-  }
-  elseif (isset($code)) {
-    return FALSE;
-  }
-  else {
-    return $codes;
-  }
-}
-
-/**
  * Payment method: default values.
  */
 function _commerce_collector_defaults(&$settings) {
@@ -823,9 +298,9 @@ function _commerce_collector_defaults(&$settings) {
   );
   $settings['commerce_collector_invoice'] += array(
     'commerce_collector_invoice_country' => array(),
+    'commerce_collector_delivery_address_profile' => NULL,
+    'commerce_collector_billing_address_profile' => NULL,
     'commerce_collector_invoice_activation' => COMMERCE_COLLECTOR_INVOICE_ACTIVATION_MANUAL,
-    'commerce_collector_invoice_activation_state' => array('completed'),
-    'commerce_collector_invoice_deactivation_state' => array('canceled'),
     'commerce_collector_invoice_delivery' => COMMERCE_COLLECTOR_INVOICE_DELIVERY_EMAIL,
     'commerce_collector_invoice_type' => COMMERCE_COLLECTOR_INVOICE_TYPE_DIRECT,
     'commerce_collector_invoice_partial_payments' => array(),
@@ -833,29 +308,6 @@ function _commerce_collector_defaults(&$settings) {
   $settings['commerce_collector_vat'] += array(
     'commerce_collector_use_vat_module' => TRUE,
     'commerce_collector_fixed_vat_rate' => 0,
-  );
-}
-
-/**
- * List of countries where Collector is available.
- */
-function _commerce_collector_get_countries() {
-  // Load locale.
-  include_once DRUPAL_ROOT . '/includes/locale.inc';
-  $available = array('NO', 'SE', 'DK', 'FI', 'DE', 'AT', 'NL');
-  return array_intersect_key(country_get_list(), array_flip($available));
-}
-
-/**
- * List of available partial payment rates.
- */
-function _commerce_collector_get_rates() {
-  return array(
-    'IF_3_001' => t('3 months, 0% interest rate, 95,- initial charge'),
-    'IF_6_001' => t('6 months, 0% interest rate, 195,- initial charge'),
-    'IF_12_001' => t('12 months, 0% interest rate, 295,- initial charge'),
-    'AN_24_001' => t('24 months, 9,95% interest rate, 295,- initial charge'),
-    'AN_36_001' => t('36 months, 14,95% interest rate, 395,- initial charge'),
   );
 }
 

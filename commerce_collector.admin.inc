@@ -12,7 +12,7 @@ function commerce_collector_admin_get_invoice($order, $transaction) {
   module_load_include('inc', 'commerce_collector', 'commerce_collector');
 
   $data = array(
-    'CountryCode' => $transaction->data['pane_values']['country'],
+    'CountryCode' => $transaction->payload['CountryCode'],
     'InvoiceNo' => $transaction->remote_id,
   );
 
@@ -20,7 +20,7 @@ function commerce_collector_admin_get_invoice($order, $transaction) {
 
   try {
     $result = _commerce_collector_request($data, $payment_method, 'GetCurrentInvoice', 'InformationService.svc', 'InformationService');
-    $transaction->data['invoice'] = (array) $result;
+    $transaction->data['response'] = (array) $result;
     commerce_payment_transaction_save($transaction);
     drupal_set_message(t('Information about corresponding invoice has been updated.'));
   }
