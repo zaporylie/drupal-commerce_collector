@@ -179,13 +179,13 @@ function commerce_collector_line_item_title() {
 /**
  * Implements hook_commerce_cart_line_item_refresh().
  *
- * Make sure we delete the fee line item if we have one and the payment method
- * is no longer collector_fee.
+ * Make sure we delete the collector fee line item if we have one and the
+ * payment method is no longer cash on delivery.
  */
 function commerce_collector_commerce_cart_line_item_refresh($line_item, $order_wrapper) {
   if ($line_item->type == 'collector_fee') {
     $order = $order_wrapper->value();
-    if ((isset($order->data['payment_method']) && !(strpos($order->data['payment_method'], 'commerce_collector|') === 0)) || isset($order->data['no_payment'])) {
+    if ((isset($order->data['payment_method']) && strpos($order->data['payment_method'], 'commerce_collector|') !== 0) || isset($order->data['no_payment'])) {
       $line_item_wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
       $line_item_wrapper->delete();
     }
@@ -195,15 +195,20 @@ function commerce_collector_commerce_cart_line_item_refresh($line_item, $order_w
 /**
  * Implements hook_commerce_cart_order_refresh().
  *
- * Make sure we delete the cod fee line item if we have one and the payment
- * method is no longer cash on delivery.
+ * Make sure we delete the collector fee line item if we have one and the
+ * payment method is no longer cash on delivery.
  */
 function commerce_collector_commerce_cart_order_refresh($order_wrapper) {
   foreach ($order_wrapper->commerce_line_items->getIterator() as $line_item_wrapper) {
     $line_item = $line_item_wrapper->value();
     if ($line_item->type == 'collector_fee') {
       $order = $order_wrapper->value();
-      if ((isset($order->data['payment_method']) && !(strpos($order->data['payment_method'], 'commerce_collector|') === 0)) || isset($order->data['no_payment'])) {
+      if (isset($order->data['payment_method']) && ($payment_method = commerce_payment_method_instance_load($order->data['payment_method'])) && $payment_method['method_id'] == 'commerce_collector') {
+        $settings = $payment_method['settings'];
+        _commerce_collector_defaults($settings);
+        $fee = $settings['commerce_collector_login']['commerce_collector_fee'];
+      }
+      if (isset($order->data['no_payment']) || empty($fee)) {
         // Remove the line item from the line item reference field.
         // This will trigger the function that called this hook to save the
         // order because it has changed.

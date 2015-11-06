@@ -768,9 +768,6 @@ function commerce_collector_fee_line_item($payment_method, $order, $delete = FAL
       return commerce_order_save($order);
     }
   }
-  elseif (_commerce_collector_line_item_exists($order) && $delete) {
-    // @todo Remove line item here.
-  }
   return FALSE;
 }
 
