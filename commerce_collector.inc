@@ -266,7 +266,7 @@ function commerce_collector_redirect_form($form, &$form_state, $order, $payment_
 /**
  * Payment method callback: redirect form return validation.
  *
- * We trust Nets to be the only ones that know about this.
+ * We trust Collector to be the only ones that know about this.
  */
 function commerce_collector_redirect_form_validate($order, $payment_method) {
 

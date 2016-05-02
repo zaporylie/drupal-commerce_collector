@@ -17,13 +17,13 @@ function commerce_collector_default_rules_configuration() {
     "ACTIVE" : false,
     "TAGS" : [ "Commerce Payment" ],
     "REQUIRES" : [ "rules", "commerce_collector", "entity" ],
-    "ON" : { "commerce_order_update" : [] },
+    "ON" : [ "commerce_order_update" ],
     "IF" : [
       { "data_is" : { "data" : [ "commerce-order:status" ], "value" : "completed" } },
       { "NOT data_is" : { "data" : [ "commerce-order-unchanged:status" ], "value" : "completed" } }
     ],
     "DO" : [
-      { "commerce_collector_activate" : { "commerce_order" : [ "commerce_order" ] } }
+      { "commerce_collector_activate" : { "commerce_order" : [ "commerce-order" ] } }
     ]
   }
 }
@@ -34,13 +34,13 @@ function commerce_collector_default_rules_configuration() {
     "ACTIVE" : false,
     "TAGS" : [ "Commerce Payment" ],
     "REQUIRES" : [ "rules", "commerce_collector", "entity" ],
-    "ON" : { "commerce_order_update" : [] },
+    "ON" : [ "commerce_order_update" ],
     "IF" : [
       { "data_is" : { "data" : [ "commerce-order:status" ], "value" : "canceled" } },
       { "NOT data_is" : { "data" : [ "commerce-order-unchanged:status" ], "value" : "canceled" } }
     ],
     "DO" : [
-      { "commerce_collector_deactivate" : { "commerce_order" : [ "commerce_order" ] } }
+      { "commerce_collector_deactivate" : { "commerce_order" : [ "commerce-order" ] } }
     ]
   }
 }
