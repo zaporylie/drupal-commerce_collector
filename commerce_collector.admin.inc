@@ -12,7 +12,7 @@ function commerce_collector_admin_get_invoice($order, $transaction) {
   module_load_include('inc', 'commerce_collector', 'commerce_collector');
 
   $data = array(
-    'CountryCode' => $transaction->payload['CountryCode'],
+    'CountryCode' => $transaction->data['country_code'],
     'InvoiceNo' => $transaction->remote_id,
   );
 

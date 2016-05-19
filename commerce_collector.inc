@@ -417,6 +417,7 @@ function commerce_collector_redirect_form_validate($order, $payment_method) {
       throw new Exception(_commerce_collector_fault_codes_messages('DENIED_TO_PURCHASE'), 'DENIED_TO_PURCHASE');
     }
 
+    $transaction->data['country_code'] = $payload['CountryCode'];
     $transaction->data['response'] = (array) $result;
     $transaction->remote_id = $result->InvoiceNo;
     $transaction->remote_status = $result->InvoiceStatus;
@@ -464,7 +465,7 @@ function commerce_collector_activate_invoice($transaction) {
   }
   try {
     $data = array(
-      'CountryCode' => $transaction->payload['CountryCode'],
+      'CountryCode' => $transaction->data['country_code'],
       'InvoiceNo' => $transaction->remote_id,
     );
     $result = _commerce_collector_request($data, $payment_method, 'ActivateInvoice');
@@ -509,7 +510,7 @@ function commerce_collector_deactivate_invoice($transaction) {
   }
   try {
     $data = array(
-      'CountryCode' => $transaction->payload['CountryCode'],
+      'CountryCode' => $transaction->data['country_code'],
       'InvoiceNo' => $transaction->remote_id,
     );
     // Try to deactivate invoice.
@@ -545,7 +546,7 @@ function commerce_collector_credit_invoice($transaction) {
 
   try {
     $data = array(
-      'CountryCode' => $transaction->payload['CountryCode'],
+      'CountryCode' => $transaction->data['country_code'],
       'InvoiceNo' => $transaction->remote_id,
       'CreditDate' => format_date(REQUEST_TIME, 'custom', 'Y-m-d\TH:i:sP'),
     );
