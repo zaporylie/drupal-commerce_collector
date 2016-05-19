@@ -40,3 +40,21 @@ function commerce_collector_uninstall() {
   // Delete any field instance attached to a cod_fee line item.
   commerce_delete_instances('commerce_line_item', 'collector_fee');
 }
+
+/**
+ * Update all collector payment transactions.
+ */
+function commerce_collector_update_7100() {
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'commerce_payment_transaction')
+      ->propertyCondition('payment_method', 'commerce_collector');
+  $result = $query->execute();
+
+  if (!empty($result['commerce_payment_transaction'])) {
+    foreach ($result['commerce_payment_transaction'] as $transaction_meta) {
+      $transaction = commerce_payment_transaction_load($transaction_meta->transaction_id);
+      $transaction->data['country_code'] = 'NO';
+      entity_save('commerce_payment_transaction', $transaction);
+    }
+  }
+}
